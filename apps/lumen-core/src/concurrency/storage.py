@@ -6,8 +6,13 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Protocol
-import asyncpg
+from typing import Any, Protocol
+
+try:
+    import asyncpg
+except ImportError:
+    asyncpg = None
+
 from .models import TaskCheckpoint, TaskState
 
 logger = logging.getLogger("lumen.concurrency.storage")
@@ -46,9 +51,11 @@ class PostgresCheckpointStorage:
             "POSTGRES_DSN",
             "postgresql://lumen:lumen_secure_pass@localhost:5432/lumen_memory",
         )
-        self.pool: asyncpg.Pool | None = None
+        self.pool: Any = None
 
     async def init(self) -> None:
+        if asyncpg is None:
+            raise ImportError("asyncpg is not installed in the active Python environment.")
         if self.pool is None:
             self.pool = await asyncpg.create_pool(
                 dsn=self.dsn,
@@ -138,7 +145,7 @@ class PostgresCheckpointStorage:
             rows = await conn.fetch(query, *params)
             return [self._row_to_checkpoint(row) for row in rows]
 
-    def _row_to_checkpoint(self, row: asyncpg.Record) -> TaskCheckpoint:
+    def _row_to_checkpoint(self, row: Any) -> TaskCheckpoint:
         res = row["result"]
         if isinstance(res, str):
             try:

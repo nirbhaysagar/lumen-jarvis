@@ -52,7 +52,8 @@ async def main():
 
     while True:
         try:
-            user_input = input("\nYou ❯ ").strip()
+            # Run input() in threadpool so asyncio event loop keeps ticking in background!
+            user_input = (await asyncio.to_thread(input, "\nYou ❯ ")).strip()
             if not user_input:
                 continue
 
