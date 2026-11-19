@@ -40,6 +40,10 @@ async def main():
 
     print("Status: Connected to Memory Engine (PostgreSQL + pgvector).")
     print("Concurrency: Task Supervisor active with MAX_PARALLEL_TASKS = 4 (Postgres Checkpointing).")
+    if session.router.active_provider:
+        print(f"Cognitive Engine: Live Streaming [{session.router.active_provider.upper()}]")
+    else:
+        print("Cognitive Engine: Local JARVIS Offline Protocol (Add OPENAI_API_KEY or GROQ_API_KEY to .env for live LLM generation).")
     print("Commands:")
     print("  • /tasks           - List all background tasks and their progress")
     print("  • /spawn <name>    - Spawn an asynchronous background task")
