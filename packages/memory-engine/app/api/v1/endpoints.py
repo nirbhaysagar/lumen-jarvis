@@ -17,6 +17,7 @@ from app.domain.models import (
 )
 from app.domain.ports import StoragePort, EmbeddingPort
 from app.domain.resolver import EntityResolver
+from app.domain.consolidator import KnowledgeConsolidator
 from app.schemas.events import CreateEventRequest, EventResponse
 from app.schemas.memories import (
     CreateFactRequest,
@@ -43,6 +44,10 @@ from app.schemas.outbox import (
     OutboxPendingResponse,
     OutboxStatsResponse,
     OutboxFailRequest,
+)
+from app.schemas.consolidation import (
+    ConsolidationReportResponse,
+    OrphanEntityItem,
 )
 
 router = APIRouter(prefix="/api/v1")
@@ -509,5 +514,56 @@ async def get_outbox_stats(
         failed=stats.get("FAILED", 0),
         total=stats.get("TOTAL", 0),
     )
+
+
+# ==========================================
+# Knowledge Graph Consolidation Endpoints
+# ==========================================
+
+@router.post("/graph/consolidate", response_model=ConsolidationReportResponse)
+async def run_consolidation(
+    storage: Annotated[StoragePort, Depends(get_storage)],
+):
+    """Run autonomous overnight consolidation patrol to detect contradictions and stage proposals."""
+    consolidator = KnowledgeConsolidator(storage=storage)
+    report = await consolidator.run_consolidation()
+    return ConsolidationReportResponse(
+        conflicts_detected=report.conflicts_detected,
+        alias_candidates_found=report.alias_candidates_found,
+        orphans_detected=report.orphans_detected,
+        proposals_staged=report.proposals_staged,
+        timestamp=report.timestamp,
+        details=report.details,
+    )
+
+
+@router.get("/graph/orphans", response_model=list[OrphanEntityItem])
+async def list_orphan_entities(
+    storage: Annotated[StoragePort, Depends(get_storage)],
+    max_degree: int = 1,
+):
+    """List entity nodes with degree (in + out connections) <= max_degree."""
+    orphans = await storage.get_orphan_entities(max_degree=max_degree)
+    return [
+        OrphanEntityItem(
+            id=str(o.id),
+            canonical_name=o.canonical_name,
+            category=o.category,
+            aliases=o.aliases,
+        )
+        for o in orphans
+    ]
+
+
+@router.get("/graph/similarity-clusters")
+async def list_similarity_clusters(
+    storage: Annotated[StoragePort, Depends(get_storage)],
+    threshold: float = 0.88,
+    limit: int = 20,
+):
+    """List entity pairs whose vector embeddings have high cosine similarity."""
+    pairs = await storage.find_high_similarity_entity_pairs(threshold=threshold, limit=limit)
+    return {"clusters": pairs, "count": len(pairs)}
+
 
 

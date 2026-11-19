@@ -936,4 +936,159 @@ class PostgresStorageAdapter(StoragePort):
             )
             return row["id"]
 
+    async def get_orphan_entities(self, max_degree: int = 1) -> list[Entity]:
+        """Find entity nodes with degree (in + out edges) less than or equal to max_degree."""
+        if not self._pool:
+            raise RuntimeError("Database pool not connected.")
+
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT e.id, e.canonical_name, e.category, e.aliases, e.description, e.metadata, e.created_at, e.updated_at,
+                       COUNT(t.id) as degree
+                FROM entities e
+                LEFT JOIN triples t ON (e.id = t.subject_id OR e.id = t.object_id) AND t.valid_to IS NULL
+                GROUP BY e.id, e.canonical_name, e.category, e.aliases, e.description, e.metadata, e.created_at, e.updated_at
+                HAVING COUNT(t.id) <= $1
+                ORDER BY degree ASC, e.canonical_name ASC;
+                """,
+                max_degree,
+            )
+            return [
+                Entity(
+                    id=r["id"],
+                    canonical_name=r["canonical_name"],
+                    category=r["category"],
+                    aliases=list(r["aliases"]) if r["aliases"] else [],
+                    description=r["description"],
+                    metadata=json.loads(r["metadata"]) if isinstance(r["metadata"], str) else (r["metadata"] or {}),
+                    created_at=r["created_at"],
+                    updated_at=r["updated_at"],
+                )
+                for r in rows
+            ]
+
+    async def find_high_similarity_entity_pairs(
+        self,
+        threshold: float = 0.88,
+        limit: int = 20,
+    ) -> list[dict]:
+        """Find distinct entity pairs whose embedding cosine similarity exceeds threshold."""
+        if not self._pool:
+            raise RuntimeError("Database pool not connected.")
+
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT e1.id as source_id, e1.canonical_name as source_name,
+                       e2.id as target_id, e2.canonical_name as target_name,
+                       (1 - (e1.embedding <=> e2.embedding)) as similarity
+                FROM entities e1
+                JOIN entities e2 ON e1.id < e2.id
+                WHERE e1.embedding IS NOT NULL
+                  AND e2.embedding IS NOT NULL
+                  AND NOT (e2.canonical_name = ANY(e1.aliases))
+                  AND NOT (e1.canonical_name = ANY(e2.aliases))
+                  AND (1 - (e1.embedding <=> e2.embedding)) >= $1
+                ORDER BY similarity DESC
+                LIMIT $2;
+                """,
+                threshold,
+                limit,
+            )
+            return [
+                {
+                    "source_id": str(r["source_id"]),
+                    "source_name": r["source_name"],
+                    "target_id": str(r["target_id"]),
+                    "target_name": r["target_name"],
+                    "similarity": float(r["similarity"]),
+                }
+                for r in rows
+            ]
+
+    async def find_contradictory_triples(self) -> list[dict]:
+        """Detect opposing active assertions (e.g. PREFERS vs DISLIKES on the same subject & object)."""
+        if not self._pool:
+            raise RuntimeError("Database pool not connected.")
+
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT t1.id as triple_id_1, t1.subject_id, t1.predicate as predicate_1, t1.object_id,
+                       t2.id as triple_id_2, t2.predicate as predicate_2,
+                       e_sub.canonical_name as subject_name,
+                       e_obj.canonical_name as object_name
+                FROM triples t1
+                JOIN triples t2 ON t1.subject_id = t2.subject_id AND t1.object_id = t2.object_id AND t1.id < t2.id
+                JOIN entities e_sub ON t1.subject_id = e_sub.id
+                JOIN entities e_obj ON t1.object_id = e_obj.id
+                WHERE t1.valid_to IS NULL AND t2.valid_to IS NULL
+                  AND (
+                      (t1.predicate = 'PREFERS' AND t2.predicate = 'DISLIKES')
+                      OR (t1.predicate = 'DISLIKES' AND t2.predicate = 'PREFERS')
+                  );
+                """
+            )
+            return [
+                {
+                    "triple_id_1": str(r["triple_id_1"]),
+                    "triple_id_2": str(r["triple_id_2"]),
+                    "subject_id": str(r["subject_id"]),
+                    "subject_name": r["subject_name"],
+                    "predicate_1": r["predicate_1"],
+                    "predicate_2": r["predicate_2"],
+                    "object_id": str(r["object_id"]),
+                    "object_name": r["object_name"],
+                }
+                for r in rows
+            ]
+
+    async def find_multi_value_functional_collisions(
+        self,
+        predicates: list[str] | None = None,
+    ) -> list[dict]:
+        """Detect functional predicates with multiple active conflicting target values for a single subject."""
+        if not self._pool:
+            raise RuntimeError("Database pool not connected.")
+
+        pred_filter = predicates or ["PREFERS", "MEMBER_OF", "FOUNDED", "DEVELOPS"]
+
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                WITH collisions AS (
+                    SELECT t.subject_id, t.predicate,
+                           array_agg(t.id) as triple_ids,
+                           array_agg(t.object_id) as object_ids,
+                           count(t.id) as object_count
+                    FROM triples t
+                    WHERE t.valid_to IS NULL
+                      AND t.predicate = ANY($1::text[])
+                    GROUP BY t.subject_id, t.predicate
+                    HAVING count(t.id) > 1
+                )
+                SELECT c.subject_id, e_sub.canonical_name as subject_name,
+                       c.predicate, c.triple_ids, c.object_ids,
+                       array_agg(e_obj.canonical_name) as object_names
+                FROM collisions c
+                JOIN entities e_sub ON c.subject_id = e_sub.id
+                JOIN entities e_obj ON e_obj.id = ANY(c.object_ids)
+                GROUP BY c.subject_id, e_sub.canonical_name, c.predicate, c.triple_ids, c.object_ids;
+                """,
+                pred_filter,
+            )
+            return [
+                {
+                    "subject_id": str(r["subject_id"]),
+                    "subject_name": r["subject_name"],
+                    "predicate": r["predicate"],
+                    "triple_ids": [str(t) for t in r["triple_ids"]],
+                    "object_ids": [str(o) for o in r["object_ids"]],
+                    "object_names": list(r["object_names"]),
+                }
+                for r in rows
+            ]
+
+
 

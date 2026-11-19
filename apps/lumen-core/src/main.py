@@ -40,15 +40,19 @@ async def main():
     session = ConversationSession(memory_client=memory_client, supervisor=supervisor)
     outbox_worker = OutboxWorker(memory_client=memory_client, vault_sync=session.vault)
     await outbox_worker.start()
+    await session.consolidation.start()
 
     print("Status: Connected to Memory Engine (PostgreSQL + pgvector).")
     print("Outbox: Transactional Outbox Worker active (PostgreSQL LISTEN/NOTIFY ↔ Obsidian Vault).")
+    print("Super-Brain: Overnight Consolidation Daemon active (Patrols contradictions & compiles morning digest).")
     print("Concurrency: Task Supervisor active with MAX_PARALLEL_TASKS = 4 (Postgres Checkpointing).")
     if session.router.active_provider:
         print(f"Cognitive Engine: Live Streaming [{session.router.active_provider.upper()}]")
     else:
         print("Cognitive Engine: Local JARVIS Offline Protocol (Add OPENAI_API_KEY or GROQ_API_KEY to .env for live LLM generation).")
     print("Commands:")
+    print("  • /consolidate     - Run on-demand Knowledge Graph consolidation patrol")
+    print("  • /digest          - View latest Morning Intelligence Digest briefing")
     print("  • /outbox          - View Transactional Outbox status (Postgres ↔ Obsidian)")
     print("  • /proposals       - View pending knowledge proposals in the Review Queue")
     print("  • /approve-proposal <id> - Authorize a contradictory belief update")
@@ -96,6 +100,7 @@ async def main():
             print("\nInterrupt received. Good day, Sir.")
             break
 
+    await session.consolidation.stop()
     await outbox_worker.stop()
     await supervisor.shutdown()
     await memory_client.close()

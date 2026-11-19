@@ -156,3 +156,37 @@ class OutboxRecord:
     processed_at: datetime | None = None
 
 
+@dataclass
+class ConsolidationConflict:
+    """Contradiction or collision detected during overnight consolidation."""
+    conflict_type: str                  # 'OPPOSING_PREDICATES', 'FUNCTIONAL_COLLISION'
+    subject_id: uuid.UUID
+    subject_name: str
+    predicate: str
+    conflicting_object_ids: list[uuid.UUID]
+    conflicting_object_names: list[str]
+    description: str
+
+
+@dataclass
+class AliasMergeCandidate:
+    """Entity pair recommended for alias merging based on semantic embedding similarity."""
+    source_entity_id: uuid.UUID
+    source_name: str
+    target_entity_id: uuid.UUID
+    target_name: str
+    similarity: float
+
+
+@dataclass
+class ConsolidationReport:
+    """Summary of overnight consolidation results."""
+    conflicts_detected: int = 0
+    alias_candidates_found: int = 0
+    orphans_detected: int = 0
+    proposals_staged: int = 0
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    details: dict = field(default_factory=dict)
+
+
+

@@ -400,6 +400,52 @@ class MemoryServiceClient:
             self._record_failure()
             return None
 
+    async def run_consolidation(
+        self,
+        trace_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Trigger autonomous knowledge graph consolidation patrol."""
+        if self.circuit_open:
+            return None
+
+        headers = {"X-Trace-ID": trace_id} if trace_id else {}
+        try:
+            resp = await self._client.post(
+                f"{self.base_url}/api/v1/graph/consolidate",
+                headers=headers,
+            )
+            if resp.status_code == 200:
+                self._record_success()
+                return resp.json()
+            return None
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError):
+            self._record_failure()
+            return None
+
+    async def get_orphan_entities(
+        self,
+        max_degree: int = 1,
+        trace_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Fetch orphan entity nodes."""
+        if self.circuit_open:
+            return []
+
+        headers = {"X-Trace-ID": trace_id} if trace_id else {}
+        try:
+            resp = await self._client.get(
+                f"{self.base_url}/api/v1/graph/orphans",
+                headers=headers,
+                params={"max_degree": max_degree},
+            )
+            if resp.status_code == 200:
+                self._record_success()
+                return resp.json()
+            return []
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError):
+            self._record_failure()
+            return []
+
     async def close(self):
         await self._client.aclose()
 

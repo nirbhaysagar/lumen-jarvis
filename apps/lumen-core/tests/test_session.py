@@ -73,5 +73,20 @@ async def test_session_proposals_and_graph_commands():
     assert "Transactional Outbox" in outbox_reply
     assert "Pending Sync Queue" in outbox_reply
 
+    # 4. Check /consolidate command
+    consolidate_tokens = []
+    async for token in session.process_turn("/consolidate"):
+        consolidate_tokens.append(token)
+    consolidate_reply = "".join(consolidate_tokens)
+    assert "Consolidation Patrol Completed" in consolidate_reply
+    assert "Morning Intelligence Digest" in consolidate_reply
+
+    # 5. Check /digest command
+    digest_tokens = []
+    async for token in session.process_turn("/digest"):
+        digest_tokens.append(token)
+    digest_reply = "".join(digest_tokens)
+    assert "Intelligence Briefing" in digest_reply
+
     await memory_client.close()
 

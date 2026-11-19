@@ -15,7 +15,7 @@
 | **Phase 2** | True Concurrency ("The Spine") | **COMPLETE** | Native Async Supervisor, Semaphore Gate (k=4), Non-blocking stdin threadpool, Postgres Checkpointing | Pytest suite (1.50s, 4 tests passed), Live REPL verified |
 | **Phase 3** | Unbroken Bi-Temporal Memory | **COMPLETE** | Dual-clock time (Valid vs Transaction), Trace Provenance DAG, Automated Fact Superseding, Time-Travel Queries | Pytest suite (0.33s, 3 tests passed), Live REST & REPL `/trace` verified |
 | **Phase 4** | Safe Computer Control ("The Hands") | **COMPLETE** | Multi-Layered Defense (Pipeline Splitter, Python AST, Credential Sentinel, Env Scrubbing) | Automated security tests (0.53s, 15 tests passed), Live REPL `/exec` verified |
-| **Phase 5 (Current)** | Knowledge Graph & Review Queue | **IN PROGRESS (Steps 1, 2 & 3 COMPLETE)** | 3-Table Schema (entities, triples, predicates), Two-Tier Entity Resolver, Review Queue Contradiction Gating, Transactional Outbox Pattern | Automated test suite (40/40 tests passed), Live REPL `/outbox`, `/proposals`, `/graph` verified |
+| **Phase 5 (Current)** | Knowledge Graph & Review Queue | **IN PROGRESS (Steps 1, 2, 3 & 4 COMPLETE)** | 3-Table Schema (entities, triples, predicates), Two-Tier Entity Resolver, Review Queue Contradiction Gating, Transactional Outbox Pattern, Overnight Consolidation Daemon | Automated test suite (46/46 tests passed), Live REPL `/consolidate`, `/digest`, `/outbox`, `/proposals`, `/graph` verified |
 | **Phase 6** | Autonomous Web & Deep Research ("The Eyes") | QUEUED | Headless Browser Automation, Markdown Extraction, Document Ingestion | Scraping & DOM traversal integration tests |
 | **Phase 7** | Voice & Barge-in Gateway ("The Senses") | **SCHEDULED FOR CAPSTONE** | Full-duplex WebSocket, VAD interrupt tokens, Silero/Kokoro streaming (Architecture locked in `docs/VOICE_GATEWAY_ARCHITECTURE.md`) | Audio roundtrip latency tests |
 
@@ -33,6 +33,7 @@
 | **ADR-006** | Safe Computer Control Architecture | Three-Ring Security Defense (AST Gatekeeper + Two-Man Rule + Sandboxed Async Runner) | Unrestricted subshell execution, Container-only sandbox | Provides multi-layered defense-in-depth: immediate deterministic pattern filtering at AST level, interactive human authorization token gate for modifying tasks, and non-blocking timeout/cancellation-aware subprocess execution. |
 | **ADR-007** | Knowledge Graph Integrity & Review Queue | Event-Sourced 3-Table Schema + Tiered Review Queue | Unvalidated triple insertion, Unbounded graph growth | Solves the entity resolution trap (merging aliases like 'psql' -> 'PostgreSQL') and prevents epistemic corruption by gating contradictory belief shifts through a human-in-the-loop review queue. |
 | **ADR-008** | Transactional Outbox Pattern for Obsidian Sync | PostgreSQL `memory_outbox` + `pg_notify` + Async Worker | Inline direct disk writes | Eliminates dual-write anti-patterns; removes file I/O latency from conversation turns; guarantees eventual consistency between PostgreSQL memory and Obsidian notes with exponential backoff retries. |
+| **ADR-009** | Overnight Consolidation Patrol & Morning Intelligence Briefing | Autonomous Nightly Patrol + Gated Review Queue + Markdown Digest | Unchecked automated edge mutation, Destructive auto-deduping | Solves epistemic drift: AI never unilaterally resolves contradictions or merges aliases. All findings are staged as Tier B review proposals with explicit explanations, and synthesized into `vault/digests/digest_YYYY-MM-DD.md`. |
 
 ---
 
@@ -207,18 +208,34 @@
        - `export_triple`: Atomically injects outbound `[[Wikilinks]]` on subject entity cards and inbound `[[Wikilinks]]` on object cards.
      - **Interactive Inspection:**
        - REPL command `/outbox` displays pending queue, processed count, failed syncs, and total markdown vault stats.
-  4. **Recursive Graph Traversal ($O(V+E)$):**
+  4. **Step 4: The Overnight Consolidation Daemon (`apps/lumen-core/src/consolidation/daemon.py` & `app/domain/consolidator.py`):**
+     - **Contradiction Patrol:**
+       - Detects opposing active assertions (e.g. $(u, \text{PREFERS}, v) \land (u, \text{DISLIKES}, v)$).
+       - Detects multi-value collisions on functional predicates (`PREFERS`, `MEMBER_OF`, `FOUNDED`).
+       - Crucial Epistemic Principle: AI NEVER overwrites or settles contradictions silently. All conflicts are staged in `review_queue` as `TIER_B` (`PENDING`) with explicit collision explanations for human approval (`/approve-proposal`, `/reject-proposal`).
+     - **Semantic Clustering & Alias Detection:**
+       - Scans orphan entities ($d(v) \le 1$).
+       - Computes pairwise cosine similarity via `pgvector` ($1 - (\mathbf{e}_1 \Leftrightarrow \mathbf{e}_2) \ge 0.88$).
+       - Proposes `ALIAS_MERGE` review queue candidates (e.g. merging "JS" into "JavaScript").
+     - **Morning Intelligence Digest (`src/vault/vault_sync.py`):**
+       - Compiles daily briefing note into `vault/digests/digest_YYYY-MM-DD.md` with YAML frontmatter, patrol metrics, action items awaiting review, and background task progress.
+     - **REPL Controls:**
+       - `/consolidate`: Triggers on-demand consolidation patrol and updates Obsidian digest.
+       - `/digest`: Displays current day's briefing in terminal.
+  5. **Recursive Graph Traversal ($O(V+E)$):**
      - Sub-millisecond multi-hop graph walking in PostgreSQL using Recursive Common Table Expressions (CTEs) with cycle prevention (`NOT (t.id = ANY(gw.path))`) and depth bounding.
-  5. **Runtime REPL & API Integration:**
-     - REPL commands: `/outbox`, `/proposals`, `/approve-proposal <id>`, `/reject-proposal <id>`, `/graph [entity]`.
-     - Endpoints: `POST /api/v1/entities`, `POST /api/v1/graph/propose`, `GET /api/v1/graph/review-queue`, `POST /api/v1/graph/review-queue/{id}/resolve`, `GET /api/v1/graph/traverse/{entity}`, `GET /api/v1/outbox/pending`, `POST /api/v1/outbox/{id}/ack`, `POST /api/v1/outbox/{id}/fail`, `GET /api/v1/outbox/stats`.
+  6. **Runtime REPL & API Integration:**
+     - REPL commands: `/consolidate`, `/digest`, `/outbox`, `/proposals`, `/approve-proposal <id>`, `/reject-proposal <id>`, `/graph [entity]`.
+     - Endpoints: `POST /api/v1/entities`, `POST /api/v1/graph/propose`, `GET /api/v1/graph/review-queue`, `POST /api/v1/graph/review-queue/{id}/resolve`, `GET /api/v1/graph/traverse/{entity}`, `GET /api/v1/outbox/pending`, `POST /api/v1/outbox/{id}/ack`, `POST /api/v1/outbox/{id}/fail`, `GET /api/v1/outbox/stats`, `POST /api/v1/graph/consolidate`, `GET /api/v1/graph/orphans`.
 - **Verification & Test Results:**
+  - `packages/memory-engine/tests/test_consolidation.py`: 3 passing integration tests in **0.30s**.
   - `packages/memory-engine/tests/test_transactional_outbox.py`: 3 passing integration tests in **0.41s**.
   - `packages/memory-engine/tests/test_knowledge_graph.py`: 4 passing integration tests in **0.43s**.
   - `packages/memory-engine/tests/test_memory_api.py`: 3 passing integration tests in **0.49s**.
+  - `apps/lumen-core/tests/test_consolidation_daemon.py`: 3 passing unit & live integration tests in **0.11s**.
   - `apps/lumen-core/tests/test_outbox_worker.py`: 4 passing unit & live integration tests in **0.17s**.
-  - `apps/lumen-core/tests/`: 30 passing unit & session tests in **4.62s**.
-  - Full project monorepo test suite: **40/40 automated tests green (100%)**.
+  - `apps/lumen-core/tests/`: 33 passing unit & session tests in **4.79s**.
+  - Full project monorepo test suite: **46/46 automated tests green (100%)**.
 
 ---
 
@@ -236,7 +253,7 @@
   - [x] **Step 1:** Normalized 3-table relational schema (`entities`, `triples`, `predicates`) with bi-temporal validity.
   - [x] **Step 2:** Two-Tier Entity Resolver & Review Queue Staging Buffer (preventing messy node duplicates and epistemic drift).
   - [x] **Step 3:** Transactional Outbox Pattern for decoupled Obsidian Vault Synchronization (`memory_outbox` + `pg_notify`).
-  - [ ] **Step 4:** Overnight Consolidation Daemon (contradiction patrol, semantic orphan clustering, morning intelligence digest in `vault/digests/`).
+  - [x] **Step 4:** Overnight Consolidation Daemon (contradiction patrol, semantic orphan clustering, morning intelligence digest in `vault/digests/`).
   - [ ] **Step 5:** Unified Hybrid Retrieval Service (`search()`) with Reciprocal Rank Fusion (BM25 + pgvector + graph).
 - [ ] **Phase 6: Add-on 5 — Autonomous Web & Deep Research ("The Eyes"):**
   - [ ] Headless browser / Crawl4AI markdown extraction.

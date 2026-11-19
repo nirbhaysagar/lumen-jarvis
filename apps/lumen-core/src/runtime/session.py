@@ -16,6 +16,7 @@ from ..tools.approval import ApprovalManager
 from ..tools.models import CommandRiskLevel
 from ..persona.jarvis import format_context_with_memories
 from ..router.model_router import ModelRouter
+from ..consolidation.daemon import ConsolidationDaemon
 
 
 def classify_preference(text: str) -> tuple[str, str]:
@@ -69,6 +70,7 @@ class ConversationSession:
         compactor: ContextCompactor | None = None,
         runner: SandboxedRunner | None = None,
         approvals: ApprovalManager | None = None,
+        consolidation_daemon: ConsolidationDaemon | None = None,
     ):
         self.conversation_id = conversation_id or f"conv_{uuid.uuid4().hex[:8]}"
         self.memory = memory_client or MemoryServiceClient()
@@ -78,6 +80,11 @@ class ConversationSession:
         self.compactor = compactor or ContextCompactor(vault_sync=self.vault)
         self.runner = runner or SandboxedRunner()
         self.approvals = approvals or ApprovalManager()
+        self.consolidation = consolidation_daemon or ConsolidationDaemon(
+            memory_client=self.memory,
+            vault_sync=self.vault,
+            supervisor=self.supervisor,
+        )
         self.history: list[dict[str, str]] = []
 
     async def spawn_background_task(
@@ -179,6 +186,34 @@ class ConversationSession:
                 )
             else:
                 yield "Could not retrieve outbox statistics from memory engine."
+            return
+
+        if trimmed == "/consolidate":
+            yield "🌅 Initializing autonomous knowledge consolidation patrol...\n"
+            result = await self.consolidation.run_consolidation_job()
+            rep = result.get("report", {})
+            yield (
+                f"✅ Overnight Consolidation Patrol Completed:\n"
+                f"• Latent Conflicts / Collisions: {rep.get('conflicts_detected', 0)}\n"
+                f"• High-Similarity Alias Candidates: {rep.get('alias_candidates_found', 0)}\n"
+                f"• Graph Orphan Entities (degree <= 1): {rep.get('orphans_detected', 0)}\n"
+                f"• New Review Proposals Staged: {rep.get('proposals_staged', 0)}\n"
+                f"• Morning Intelligence Digest: {result.get('digest_path')}\n\n"
+                f"Pending proposals can be reviewed anytime via `/proposals` and approved via `/approve-proposal <id>`."
+            )
+            return
+
+        if trimmed == "/digest":
+            if self.consolidation.last_digest_path and self.consolidation.last_digest_path.exists():
+                content = self.consolidation.last_digest_path.read_text(encoding="utf-8")
+                yield f"📄 Latest Intelligence Briefing ({self.consolidation.last_digest_path.name}):\n\n{content}"
+            else:
+                yield "No digest cached yet for today. Triggering on-demand consolidation...\n"
+                result = await self.consolidation.run_consolidation_job()
+                import pathlib
+                digest_file = pathlib.Path(result["digest_path"])
+                content = digest_file.read_text(encoding="utf-8")
+                yield f"📄 Morning Intelligence Briefing Generated ({digest_file.name}):\n\n{content}"
             return
 
         if trimmed == "/approvals":

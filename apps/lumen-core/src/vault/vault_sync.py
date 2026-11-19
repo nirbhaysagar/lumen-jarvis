@@ -29,6 +29,7 @@ class ObsidianVaultSync:
         self.episodes_dir = self.vault_path / "episodes"
         self.daily_dir = self.vault_path / "daily"
         self.entities_dir = self.vault_path / "entities"
+        self.digests_dir = self.vault_path / "digests"
 
         self._ensure_directories()
 
@@ -37,6 +38,7 @@ class ObsidianVaultSync:
         self.episodes_dir.mkdir(parents=True, exist_ok=True)
         self.daily_dir.mkdir(parents=True, exist_ok=True)
         self.entities_dir.mkdir(parents=True, exist_ok=True)
+        self.digests_dir.mkdir(parents=True, exist_ok=True)
 
     def _wikilinkify(self, text: str) -> str:
         """Adds wikilinks to recognized technologies, programming languages, and entities."""
@@ -246,6 +248,94 @@ tags:
 
         return sub_path, obj_path
 
+    def export_digest(
+        self,
+        date_str: str | None = None,
+        report: dict[str, Any] | None = None,
+        pending_proposals: list[dict[str, Any]] | None = None,
+        active_tasks: list[dict[str, Any]] | None = None,
+    ) -> Path:
+        """Exports a Morning Intelligence Digest to Markdown in vault/digests/."""
+        if not date_str:
+            date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+        filename = f"digest_{date_str}.md"
+        filepath = self.digests_dir / filename
+
+        report_data = report or {}
+        conflicts = report_data.get("conflicts_detected", 0)
+        aliases = report_data.get("alias_candidates_found", 0)
+        orphans = report_data.get("orphans_detected", 0)
+        staged = report_data.get("proposals_staged", 0)
+
+        # Pending proposals section
+        proposals_lines = []
+        if pending_proposals:
+            for p in pending_proposals:
+                p_id = p.get("id", "unknown")
+                p_type = p.get("proposal_type", "NEW_TRIPLE")
+                sub = p.get("subject_raw", "")
+                pred = p.get("predicate_raw", "")
+                obj = p.get("object_raw", "")
+                reason = p.get("conflict_reason") or "No conflict reason specified"
+                proposals_lines.append(
+                    f"* **`[{p_type}]` [[{sub}]] `{pred}` [[{obj}]]** (ID: `{p_id}`)\n"
+                    f"  > *Reason:* {reason}\n"
+                    f"  > *Action:* Approve with `/approve-proposal {p_id}` or Reject with `/reject-proposal {p_id}`"
+                )
+        proposals_section = "\n".join(proposals_lines) if proposals_lines else "*No decisions currently pending review.*"
+
+        # Active tasks section
+        tasks_lines = []
+        if active_tasks:
+            for t in active_tasks:
+                t_id = t.get("task_id", "unknown")
+                name = t.get("name", "unnamed")
+                state = t.get("state", "UNKNOWN")
+                prog = int(float(t.get("fractional_progress", 0.0)) * 100)
+                tasks_lines.append(f"* **`[{state}]` {name}** (`{prog}%`) — ID: `{t_id}`")
+        tasks_section = "\n".join(tasks_lines) if tasks_lines else "*No active background tasks running.*"
+
+        content = f"""---
+date: '{date_str}'
+type: morning_digest
+conflicts_detected: {conflicts}
+alias_candidates_found: {aliases}
+orphans_detected: {orphans}
+proposals_staged: {staged}
+tags:
+  - lumen/digest
+  - daily/briefing
+---
+
+# 🌅 Lumen Morning Intelligence Digest — `{date_str}`
+
+> Autonomous overnight consolidation completed. Knowledge graph integrity verified.
+
+---
+
+### 📊 Consolidation Patrol Summary
+* **Identified Conflicts / Collisions:** `{conflicts}`
+* **High-Similarity Alias Candidates:** `{aliases}`
+* **Graph Orphan Nodes ($d \\le 1$):** `{orphans}`
+* **New Review Proposals Staged:** `{staged}`
+
+---
+
+### 🛡️ Actions Requiring Operator Approval (The Review Queue)
+{proposals_section}
+
+---
+
+### ⚙️ Background Concurrency & Task Telemetry
+{tasks_section}
+
+---
+*Generated automatically by Lumen Overnight Consolidation Daemon.*
+"""
+        filepath.write_text(content.strip() + "\n", encoding="utf-8")
+        return filepath
+
     def get_vault_stats(self) -> dict[str, int]:
         """Returns counts of generated Markdown files across vault categories."""
         return {
@@ -253,5 +343,6 @@ tags:
             "memories": len(list(self.memories_dir.glob("*.md"))),
             "episodes": len(list(self.episodes_dir.glob("*.md"))),
             "daily": len(list(self.daily_dir.glob("*.md"))),
+            "digests": len(list(self.digests_dir.glob("*.md"))),
             "total_notes": len(list(self.vault_path.rglob("*.md"))),
         }

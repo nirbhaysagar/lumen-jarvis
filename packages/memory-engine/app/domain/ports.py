@@ -145,6 +145,33 @@ class StoragePort(ABC):
         """Return counts of PENDING, PROCESSED, and FAILED outbox events."""
         pass
 
+    @abstractmethod
+    async def get_orphan_entities(self, max_degree: int = 1) -> list[Entity]:
+        """Find entity nodes with degree (in + out edges) less than or equal to max_degree."""
+        pass
+
+    @abstractmethod
+    async def find_high_similarity_entity_pairs(
+        self,
+        threshold: float = 0.88,
+        limit: int = 20,
+    ) -> list[dict]:
+        """Find distinct entity pairs whose embedding cosine similarity exceeds threshold."""
+        pass
+
+    @abstractmethod
+    async def find_contradictory_triples(self) -> list[dict]:
+        """Detect opposing active assertions (e.g. PREFERS vs DISLIKES on the same subject & object)."""
+        pass
+
+    @abstractmethod
+    async def find_multi_value_functional_collisions(
+        self,
+        predicates: list[str] | None = None,
+    ) -> list[dict]:
+        """Detect functional predicates with multiple active conflicting target values for a single subject."""
+        pass
+
 
 class EmbeddingPort(ABC):
     """Port for transforming human text into high-dimensional vector space."""
