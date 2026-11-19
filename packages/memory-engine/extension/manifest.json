@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Sheldon Capture",
+  "version": "0.1.0",
+  "description": "Save ChatGPT and Claude conversations into your Lumen brain.",
+  "permissions": ["storage", "sidePanel", "activeTab", "scripting"],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "https://claude.ai/*",
+    "http://127.0.0.1:8765/*"
+  ],
+  "side_panel": { "default_path": "sidepanel.html" },
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://claude.ai/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": { "default_title": "Sheldon Capture" }
+}
+

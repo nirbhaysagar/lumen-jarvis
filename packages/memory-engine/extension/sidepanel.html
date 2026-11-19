@@ -1,0 +1,31 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Sheldon Capture</title>
+<style>
+  :root { --ink:#111; --sub:#6e6e73; --line:#e8e8ea; --wash:#f5f5f7; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,Helvetica,Arial,sans-serif;
+    margin:0; padding:16px; color:var(--ink); width:360px; }
+  h1 { font-size:17px; margin:0 0 4px; }
+  .sub { color:var(--sub); font-size:12px; margin-bottom:12px; }
+  .status { display:flex; align-items:center; gap:8px; font-size:13px;
+    background:var(--wash); border-radius:10px; padding:10px 12px; margin-bottom:12px; }
+  .dot { width:10px; height:10px; border-radius:50%; background:#999; }
+  .dot.ok { background:#111; } .dot.bad { background:#fff; border:2px solid #111; }
+  select, button { font-size:13px; }
+  select { width:100%; padding:8px; border:1px solid var(--line); border-radius:10px; margin-bottom:10px; }
+  .btn { width:100%; background:var(--ink); color:#fff; border:0; border-radius:999px;
+    padding:10px; font-weight:600; cursor:pointer; }
+  .btn:disabled { opacity:.4; }
+  .hint { color:var(--sub); font-size:12px; margin-top:8px; }
+  pre { background:var(--wash); border-radius:10px; padding:10px; font-size:11px;
+    max-height:220px; overflow:auto; white-space:pre-wrap; }
+</style>
+<h1>Sheldon Capture</h1>
+<div class="sub">Front-Side: this chat → your brain</div>
+<div class="status"><span class="dot" id="dot"></span><span id="stext">Looking at this tab…</span></div>
+<select id="chain"><option value="auto">Auto-file (recommended)</option></select>
+<button class="btn" id="save" disabled>Save conversation</button>
+<div class="hint" id="out"></div>
+<pre id="prev"></pre>
+<script src="sidepanel.js"></script>
+

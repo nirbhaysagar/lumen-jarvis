@@ -1,0 +1,31 @@
+  return (s || '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+function renderCardContent(m) {
+  if (m.snippet) {
+    return escapeHtml(m.snippet)
+      .replace(/&lt;b&gt;/g, '<b style="background:rgba(255,235,59,0.25);color:inherit;padding:1px 3px;border-radius:3px">')
+      .replace(/&lt;\/b&gt;/g, '</b>');
+  }
+  return escapeHtml(m.content);
+}
+
+// Keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    if (document.activeElement === document.getElementById('dump')) ingest();
+    else if (document.activeElement === document.getElementById('ask')) ask();
+  } else if (e.key === 'Escape') {
+    closeEditModal();
+    closeHistoryModal();
+    closeRawModal();
+    closeExportModal();
+    closeGraphInspector();
+  }
+});
+
+// Boot and Hash route handler
+window.addEventListener('hashchange', () => {
+  const hash = window.location.hash.replace('#', '') || 'workbench';

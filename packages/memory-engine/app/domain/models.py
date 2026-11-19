@@ -1,0 +1,69 @@
+"""
+Domain Models for Lumen Memory Engine.
+Pure business logic and domain entities — zero external framework dependencies.
+"""
+from __future__ import annotations
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from enum import Enum
+import hashlib
+import json
+import uuid
+
+
+class MemoryType(str, Enum):
+    FACT = "fact"
+    DECISION = "decision"
+    GOAL = "goal"
+    CONSTRAINT = "constraint"
+    PREFERENCE = "preference"
+    QUESTION = "question"
+    INSIGHT = "insight"
+    RELATIONSHIP = "relationship"
+
+
+class EpistemicType(str, Enum):
+    OBSERVED_FACT = "observed_fact"    # Directly observed event/action
+    USER_BELIEF = "user_belief"        # Statement of user thought or worldview
+    AI_INFERENCE = "ai_inference"      # Synthesized conjecture by AI
+    DECISION = "decision"              # Explicit, binding decision or choice
+
+
+@dataclass
+class MemoryEvent:
+    """L0 Raw Immutable Receipt: captured interaction or state change."""
+    source: str                         # e.g., 'user_cli', 'chat', 'tool', 'system'
+    payload: dict                       # Raw structured content
+    id: uuid.UUID = field(default_factory=uuid.uuid4)
+    conversation_id: str | None = None
+    idempotency_key: str | None = None
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    hash: str = field(init=False)
+
+    def __post_init__(self):
+        # Deterministic SHA-256 hash ensuring tamper-evident immutability
+        raw_str = f"{self.id}:{self.source}:{self.conversation_id}:{json.dumps(self.payload, sort_keys=True)}"
+        self.hash = hashlib.sha256(raw_str.encode("utf-8")).hexdigest()
+
+
+@dataclass
+class CanonicalFact:
+    """L1 Canonical Memory: atomic derived assertion with provenance."""
+    entity: str                         # Subject (e.g. 'user', 'project_lumen')
+    attribute: str                      # Predicate (e.g. 'preferred_database', 'deadline')
+    value: str | dict | list | int      # Object (e.g. 'PostgreSQL', '2026-12-31')
+    memory_type: MemoryType = MemoryType.FACT
+    epistemic_type: EpistemicType = EpistemicType.OBSERVED_FACT
+    confidence: float = 1.0             # 0.0 to 1.0 confidence score
+    source_event_ids: list[uuid.UUID] = field(default_factory=list) # Strict Provenance pointers
+    valid_from: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    valid_to: datetime | None = None   # None indicates currently active
+    id: uuid.UUID = field(default_factory=uuid.uuid4)
+
+
+@dataclass
+class MemorySearchResult:
+    """Result of hybrid or semantic memory retrieval with provenance."""
+    fact: CanonicalFact
+    similarity: float                   # Cosine similarity score (0.0 to 1.0)
+    source_citations: list[dict] = field(default_factory=list)

@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  # ==========================================
+  # 1. PostgreSQL with pgvector (The Brain DB)
+  # ==========================================
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: lumen-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-lumen}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lumen_secure_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-lumen_memory}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lumen} -d ${POSTGRES_DB:-lumen_memory}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - lumen-network
+
+  # ==========================================
+  # 2. Redis (The Spine Queue & Hot Cache)
+  # ==========================================
+  redis:
+    image: redis:7-alpine
+    container_name: lumen-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - lumen-network
+
+volumes:
+  postgres_data:
+    name: lumen_postgres_data
+  redis_data:
+    name: lumen_redis_data
+
+networks:
+  lumen-network:
+    name: lumen-network
+    driver: bridge
