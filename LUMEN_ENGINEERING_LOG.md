@@ -140,28 +140,29 @@
 ---
 
 ### Phase 4: Safe Computer Control ("The Hands")
-- **Technique:** Three-Ring Security Defense Model + Two-Man Rule Authorization Gate + Asynchronous Sandboxed Subprocess Management.
+- **Technique:** Multi-Layered Defense-in-Depth + Lexical Pipeline Analysis + Python AST Inspection + Environment Scrubbing + Two-Man Rule Approval Gate.
 - **Microservice / Modules:** `apps/lumen-core/src/tools/`
   1. **Ring 1 — AST Command Gatekeeper (`gatekeeper.py`):**
-     - Parses and tokenizes raw terminal strings via `shlex.split()`.
-     - Deterministically blocks destructive patterns (`rm -rf /`, `rm -rf ~`, `rm -rf *`, `mkfs`, fork bombs `:(){ :|:& };:`, raw disk writes `dd of=/dev/sd*`, `DROP TABLE`).
-     - Uses token-based recursive path analysis to prevent bypasses across non-word delimiters.
-     - Categorizes commands into `SAFE` (read-only: `ls`, `git status`, `cat`, `grep`, `pwd`), `CAUTION` (modifying: `git commit`, `pip install`, `pytest`, `mkdir`), and `FORBIDDEN` (destructive: immediate refusal). Unknown binaries default to `CAUTION` for defense-in-depth.
-     - Detects file redirection operators (`>`, `>>`) and elevates read-only commands to `CAUTION`.
+     - **Compound Pipeline Splitting:** Parses chained statements (`&&`, `||`, `;`, `|`, `&`) using `shlex.shlex(punctuation_chars=True)` and computes maximum risk across all segments. Prevents command smuggling (e.g. `ls && rm -rf /`).
+     - **Subshell Extraction:** Detects and recursively evaluates nested command substitutions: `$(...)` and `` `...` ``.
+     - **Reverse Shell & Tunnel Blocking:** Hard-refuses network tunneling payloads (`nc -e /bin/sh`, `bash -i >& /dev/tcp/...`, `socat exec:...`, `mkfifo`).
+     - **Protected Credential & Secret Sentinel:** Automatically audits paths for sensitive credentials (`.ssh`, `.aws`, `.gnupg`, `.netrc`, `.env`, `/etc/shadow`, `.bashrc`, `.zshrc`, `*.pem`, `*.key`, `id_rsa`). Reading sensitive paths elevates to `CAUTION` (requiring explicit human confirmation); modifying or deleting sensitive paths is hard `FORBIDDEN`.
+     - **Python Security AST Inspector:** Uses Python's built-in `ast.parse()` to inspect inline scripts (`python -c "..."`). Blocks destructive standard library calls (`shutil.rmtree('/')`), low-level imports (`ctypes`, `pty`), arbitrary dynamic execution (`eval`, `exec`), and recursively audits shell commands spawned via `os.system` or `subprocess`.
+     - **Command Classification:** Standard read-only utilities (`ls`, `git status`, `cat`, `grep`, `pwd`) auto-approved as `SAFE`. Modifying utilities (`git commit`, `pip install`, `pytest`, `mkdir`) marked `CAUTION`. Output file redirection (`>`, `>>`) automatically elevates read-only commands to `CAUTION`.
   2. **Ring 2 — Two-Man Rule Approval Gate (`approval.py`):**
      - Modifying or `CAUTION` commands cannot execute autonomously.
      - The engine mints a unique approval token (`appr_<id>`) and pauses execution in an asynchronous `AWAITING_APPROVAL` barrier using `asyncio.Event`.
      - Human operator inspects pending authorizations with `/approvals` and can authorize with `/approve <id>` or revoke with `/reject <id>`.
   3. **Ring 3 — Sandboxed Subprocess Runner (`runner.py`):**
-     - Executes approved commands via non-blocking `asyncio.create_subprocess_shell`.
-     - Strictly enforces wall-clock timeouts (default 30s) to prevent frozen child processes.
-     - Interleaves concurrent `CancellationToken` monitoring; when cancelled, signals `SIGTERM` followed by `SIGKILL`.
-     - Streams stdout/stderr back without blocking the event loop or conversational REPL.
+     - **Environment Sanitization (Secret Scrubbing):** Child subprocesses run with a sanitized environment that scrubs all keys matching `*_KEY`, `*_SECRET`, `*_TOKEN`, `*_PASSWORD`, `DATABASE_URL`, `POSTGRES_*`, `REDIS_*`. Prevents child processes or prompt-injected tools from exfiltrating credentials.
+     - **Bounded Stream Buffering (Memory Protection):** Replaced unbounded `communicate()` with chunked asynchronous stream reading capped at `max_output_bytes = 512KB`. If a runaway process attempts to flood output, the buffer truncates safely and sends `SIGTERM` to protect system RAM.
+     - **Directory Jail Guard:** Validates working directories before launch; strictly rejects execution inside critical host roots (`/etc`, `/System`, `/Library`, `/private`, `/bin`, `/sbin`).
+     - **Cooperative Cancellation & Timeouts:** Enforces wall-clock timeouts (default 30s) and clean process termination cascades (`SIGTERM` $\to$ grace period $\to$ `SIGKILL`).
   4. **Runtime REPL Integration (`apps/lumen-core/src/runtime/session.py`):**
      - Interactive commands: `/exec <cmd>`, `/approve <id>`, `/reject <id>`, `/approvals`.
 - **Verification & Test Results:**
-  - `apps/lumen-core/tests/test_computer_control.py`: 8 passing unit & integration tests in **0.22s**.
-  - Full project test suite: **21/21 automated tests green** (18 `lumen-core`, 3 `memory-engine`).
+  - `apps/lumen-core/tests/test_computer_control.py`: **15 passing unit & adversarial security tests** in **0.53s**.
+  - Full project test suite: **28/28 automated tests green** (25 `lumen-core`, 3 `memory-engine`).
 
 ---
 
