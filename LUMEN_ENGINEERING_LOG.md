@@ -62,11 +62,12 @@
   - **Latency:** Vector search executed in **2.87ms** with full cosine ranking.
 
 - **Microservice:** `apps/lumen-core` (JARVIS Agent Runtime)
-  - **Technique:** Circuit Breaker Client + Dual-Speed Model Routing.
+  - **Technique:** Circuit Breaker Client + Dual-Speed Model Routing + Grounded Offline RAG Synthesis.
   - **Components:**
     - `MemoryClient`: Handles HTTP communication with the Memory Engine. Integrates a 3-state Circuit Breaker (`CLOSED`, `OPEN`, `HALF_OPEN`) to gracefully degrade if the database goes down.
     - `PersonaEngine`: Implements the Cerebro JARVIS system prompt (dry wit, proactive intellect, concise responses, protocol-driven).
-    - `ModelRouter`: Dual-speed engine (Fast Tier: Groq/Cerebras Llama-3 8B @ ~120ms; Deep Tier: Anthropic Claude 3.5 Sonnet / OpenAI GPT-4o for complex reasoning). Includes offline mock fallback.
+    - `ModelRouter`: Dual-speed engine supporting live streaming via Groq (Llama-3.3-70B), OpenAI, Gemini, and Anthropic.
+    - **Dynamic Offline RAG Synthesis:** When operating without external LLM API keys, the router dynamically parses semantic facts retrieved from PostgreSQL pgvector (HNSW cosine search threshold tuned to `0.01`), deduplicating verified records and articulating the exact answer directly from the memory ledger.
     - `Session`: Context orchestrator managing short-term conversation memory, automatic context injection from long-term memory, and conversation history turns.
 
 ---

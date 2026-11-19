@@ -231,6 +231,13 @@ class ModelRouter:
 
         # Check for retrieved memory context
         has_memory = "ACTIVE LONG-TERM MEMORIES" in system_msg
+        retrieved_facts = []
+        if has_memory:
+            for line in system_msg.split("\n"):
+                if line.startswith("• ["):
+                    retrieved_facts.append(line[2:].strip())
+        # Deduplicate while preserving order
+        retrieved_facts = list(dict.fromkeys(retrieved_facts))
 
         # Match intent
         if any(q in lowered for q in ["capability", "capabilities", "capabilitiues", "what can you do", "features"]):
@@ -243,7 +250,7 @@ class ModelRouter:
                 "4. Non-Blocking Session Loop: You may spawn background tasks with `/spawn <name>` or inspect them with `/tasks` "
                 "at any time without interrupting our dialogue."
             )
-        elif any(q in lowered for q in ["hello", "hey", "hi", "good morning", "good evening"]):
+        elif bool(re.search(r"\b(hello|hey|hi|good morning|good evening)\b", lowered)):
             reply = "Good day, Sir. All systems and memory engines are operating at peak efficiency. How may I assist you?"
         elif any(re.search(rf"\b{q}\b", lowered) for q in ["who are you", "what are you", "jarvis", "jarvsi"]) or any(q in lowered for q in ["tell me about yourself", "tell em about", "about yourself", "about yurslf"]):
             reply = (
@@ -256,11 +263,12 @@ class ModelRouter:
                 "expanded cognitive horizons, simply add an API key (OpenAI, Groq, Anthropic, or Gemini) "
                 "to your .env file."
             )
-        elif has_memory and any(w in lowered for w in ["database", "select", "chose", "pick", "remember", "prefer", "stack"]):
+        elif retrieved_facts:
+            # Dynamically synthesize response directly from database memories!
+            formatted_facts = "\n".join([f"• {f}" for f in retrieved_facts])
             reply = (
-                "Regarding your technical preferences, Sir: our memory ledger confirms your explicit preference for "
-                "TypeScript and Python, and notes your firm aversion to MongoDB. We have standardized our persistence "
-                "layer upon PostgreSQL with pgvector."
+                f"According to your recorded memory ledger, Sir:\n{formatted_facts}\n\n"
+                "This fact was retrieved directly with verified provenance from our PostgreSQL memory store."
             )
         elif any(q in lowered for q in ["status", "system status", "health"]):
             reply = (
@@ -271,6 +279,11 @@ class ModelRouter:
             )
         elif any(q in lowered for q in ["thank", "thanks", "good job", "well done"]):
             reply = "Always at your service, Sir. It is what I was constructed for."
+        elif any(q in lowered for q in ["which", "what", "where", "who", "did i", "have i", "do i"]):
+            reply = (
+                f"I searched our memory ledger for '{user_msg}', Sir, but found no matching records or past decisions on that subject.\n\n"
+                "To enable broad open-domain reasoning beyond your stored memory database, you can connect an LLM API key (such as GROQ_API_KEY or OPENAI_API_KEY) in your .env file."
+            )
         else:
             reply = (
                 f"Understood, Sir. I have recorded your note regarding '{user_msg}' into the memory engine.\n\n"

@@ -102,11 +102,11 @@ class ConversationSession:
                 announcements.append(f"⚡ [System Notice] Background task '{n.name}' ({n.task_id}) reached state: {n.state.value}.")
             yield "\n".join(announcements) + "\n\n"
 
-        # 2. Parallel Memory Retrieval
+        # 2. Parallel Memory Retrieval (Tuned for pgvector HNSW search)
         memories = await self.memory.search_memories(
             query=user_text,
             limit=4,
-            threshold=0.05,
+            threshold=0.01,
             trace_id=trace_id,
         )
 
