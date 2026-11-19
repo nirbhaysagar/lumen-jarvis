@@ -45,6 +45,9 @@ async def main():
     else:
         print("Cognitive Engine: Local JARVIS Offline Protocol (Add OPENAI_API_KEY or GROQ_API_KEY to .env for live LLM generation).")
     print("Commands:")
+    print("  • /exec <command>  - Safely evaluate & execute a terminal command")
+    print("  • /approve <id>    - Authorize a pending high-risk command (Two-Man Rule)")
+    print("  • /reject <id>     - Reject & cancel a pending command")
     print("  • /tasks           - List all background tasks and their progress")
     print("  • /spawn <name>    - Spawn an asynchronous background task")
     print("  • /task-cancel <id>- Cooperatively cancel an in-flight task")

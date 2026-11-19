@@ -14,8 +14,8 @@
 | **Phase 1** | Lumen Core (Agent Runtime) | **COMPLETE** | Decoupled Circuit Breaker Client, Dual-Speed Routing, Persona Engine | Pytest (0.78s), Interactive REPL |
 | **Phase 2** | True Concurrency ("The Spine") | **COMPLETE** | Native Async Supervisor, Semaphore Gate (k=4), Non-blocking stdin threadpool, Postgres Checkpointing | Pytest suite (1.50s, 4 tests passed), Live REPL verified |
 | **Phase 3** | Unbroken Bi-Temporal Memory | **COMPLETE** | Dual-clock time (Valid vs Transaction), Trace Provenance DAG, Automated Fact Superseding, Time-Travel Queries | Pytest suite (0.33s, 3 tests passed), Live REST & REPL `/trace` verified |
-| **Phase 4 (Current)** | Safe Computer Control | **NEXT** | Sandboxed Execution Engine, AST Command Gatekeeper, Two-Man Rule Approval Gates | Sandbox isolation tests & security verification |
-| **Phase 5** | Voice & Barge-in Gateway | QUEUED | Full-duplex WebSocket, VAD interrupt tokens, Silero/Kokoro | Audio roundtrip latency tests |
+| **Phase 4** | Safe Computer Control ("The Hands") | **COMPLETE** | Three-Ring Security (AST Gatekeeper + Two-Man Rule + Sandboxed Async Runner) | Automated security tests (0.22s, 8 tests passed), Live REPL `/exec` verified |
+| **Phase 5 (Current)** | Voice & Barge-in Gateway | **IN PROGRESS** | Full-duplex WebSocket, VAD interrupt tokens, Silero/Kokoro streaming | Audio roundtrip latency tests |
 
 ---
 
@@ -28,6 +28,7 @@
 | **ADR-003** | Distributed Tracing | Correlation ID Header (`x-trace-id`) + Idempotency | OpenTelemetry agent alone | Sub-millisecond tracking across microservice HTTP boundaries without heavy agent overhead. |
 | **ADR-004** | Agent Concurrency Model | Native Async Supervisor + Postgres Checkpoints | Hatchet, DBOS, Celery | Sub-0.1ms dispatch latency; avoids heavy Go daemons/gRPC setup while ensuring durable task recovery. |
 | **ADR-005** | Resilience & Fault Tolerance | Circuit Breaker Pattern | Naive HTTP retries | Prevents agent thread exhaustion when Memory Engine is restarting or under load. |
+| **ADR-006** | Safe Computer Control Architecture | Three-Ring Security Defense (AST Gatekeeper + Two-Man Rule + Sandboxed Async Runner) | Unrestricted subshell execution, Container-only sandbox | Provides multi-layered defense-in-depth: immediate deterministic pattern filtering at AST level, interactive human authorization token gate for modifying tasks, and non-blocking timeout/cancellation-aware subprocess execution. |
 
 ---
 
@@ -138,16 +139,42 @@
 
 ---
 
+### Phase 4: Safe Computer Control ("The Hands")
+- **Technique:** Three-Ring Security Defense Model + Two-Man Rule Authorization Gate + Asynchronous Sandboxed Subprocess Management.
+- **Microservice / Modules:** `apps/lumen-core/src/tools/`
+  1. **Ring 1 — AST Command Gatekeeper (`gatekeeper.py`):**
+     - Parses and tokenizes raw terminal strings via `shlex.split()`.
+     - Deterministically blocks destructive patterns (`rm -rf /`, `rm -rf ~`, `rm -rf *`, `mkfs`, fork bombs `:(){ :|:& };:`, raw disk writes `dd of=/dev/sd*`, `DROP TABLE`).
+     - Uses token-based recursive path analysis to prevent bypasses across non-word delimiters.
+     - Categorizes commands into `SAFE` (read-only: `ls`, `git status`, `cat`, `grep`, `pwd`), `CAUTION` (modifying: `git commit`, `pip install`, `pytest`, `mkdir`), and `FORBIDDEN` (destructive: immediate refusal). Unknown binaries default to `CAUTION` for defense-in-depth.
+     - Detects file redirection operators (`>`, `>>`) and elevates read-only commands to `CAUTION`.
+  2. **Ring 2 — Two-Man Rule Approval Gate (`approval.py`):**
+     - Modifying or `CAUTION` commands cannot execute autonomously.
+     - The engine mints a unique approval token (`appr_<id>`) and pauses execution in an asynchronous `AWAITING_APPROVAL` barrier using `asyncio.Event`.
+     - Human operator inspects pending authorizations with `/approvals` and can authorize with `/approve <id>` or revoke with `/reject <id>`.
+  3. **Ring 3 — Sandboxed Subprocess Runner (`runner.py`):**
+     - Executes approved commands via non-blocking `asyncio.create_subprocess_shell`.
+     - Strictly enforces wall-clock timeouts (default 30s) to prevent frozen child processes.
+     - Interleaves concurrent `CancellationToken` monitoring; when cancelled, signals `SIGTERM` followed by `SIGKILL`.
+     - Streams stdout/stderr back without blocking the event loop or conversational REPL.
+  4. **Runtime REPL Integration (`apps/lumen-core/src/runtime/session.py`):**
+     - Interactive commands: `/exec <cmd>`, `/approve <id>`, `/reject <id>`, `/approvals`.
+- **Verification & Test Results:**
+  - `apps/lumen-core/tests/test_computer_control.py`: 8 passing unit & integration tests in **0.22s**.
+  - Full project test suite: **21/21 automated tests green** (18 `lumen-core`, 3 `memory-engine`).
+
+---
+
 ## 🗺️ 4. What We Are Building Next (Roadmap Checklist)
 
 - [x] **Phase 0:** Infrastructure Hub (PostgreSQL 16 + pgvector v0.8.7, Redis 7).
 - [x] **Phase 1:** MVP Brain + Memory Engine v0.1 + JARVIS Persona (Hexagonal Architecture, HNSW 2.87ms search, Circuit Breaker).
 - [x] **Phase 2:** True Concurrency "The Spine" (Supervisor, Semaphore Gate k=4, Cooperative Cancellation, Postgres Checkpoints, Non-blocking threadpool REPL).
 - [x] **Phase 3:** Unbroken Bi-Temporal Memory Engine (Dual-clock validity, Trace API DAG, Automated Superseding, Time-Travel Vector Queries).
-- [ ] **Phase 4: Add-on 3 — Safe Computer Control:**
-  - [ ] Sandboxed execution runner for shell & code execution.
-  - [ ] AST Gatekeeper parsing destructive commands (`rm -rf`, `DROP TABLE`).
-  - [ ] Two-Man Rule approval gates (`AWAITING_APPROVAL`).
+- [x] **Phase 4: Add-on 3 — Safe Computer Control:**
+  - [x] AST Gatekeeper parsing destructive commands (`rm -rf`, `DROP TABLE`).
+  - [x] Two-Man Rule approval gates (`AWAITING_APPROVAL`, `/approve`, `/reject`).
+  - [x] Sandboxed execution runner with timeouts, cancellation, and stdout/stderr capture.
 - [ ] **Phase 5: Add-on 4 — Voice & Barge-in Gateway:**
   - [ ] Full-duplex WebSocket server.
   - [ ] Silero VAD (Voice Activity Detection) with barge-in interrupt tokens.

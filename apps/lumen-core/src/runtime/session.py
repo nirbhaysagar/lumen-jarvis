@@ -10,6 +10,9 @@ from ..concurrency.supervisor import TaskSupervisor
 from ..compactor.compactor import ContextCompactor
 from ..vault.vault_sync import ObsidianVaultSync
 from ..memory_client.client import MemoryServiceClient
+from ..tools.runner import SandboxedRunner
+from ..tools.approval import ApprovalManager
+from ..tools.models import CommandRiskLevel
 from ..persona.jarvis import format_context_with_memories
 from ..router.model_router import ModelRouter
 
@@ -39,6 +42,8 @@ class ConversationSession:
         supervisor: TaskSupervisor | None = None,
         vault_sync: ObsidianVaultSync | None = None,
         compactor: ContextCompactor | None = None,
+        runner: SandboxedRunner | None = None,
+        approvals: ApprovalManager | None = None,
     ):
         self.conversation_id = conversation_id or f"conv_{uuid.uuid4().hex[:8]}"
         self.memory = memory_client or MemoryServiceClient()
@@ -46,6 +51,8 @@ class ConversationSession:
         self.supervisor = supervisor or TaskSupervisor()
         self.vault = vault_sync or ObsidianVaultSync()
         self.compactor = compactor or ContextCompactor(vault_sync=self.vault)
+        self.runner = runner or SandboxedRunner()
+        self.approvals = approvals or ApprovalManager()
         self.history: list[dict[str, str]] = []
 
     async def spawn_background_task(
@@ -125,6 +132,79 @@ class ConversationSession:
                 f"• Compacted Episodes: {stats['episodes']}\n"
                 f"• Total Markdown Cards: {stats['total_notes']}\n\n"
                 f"You can open '{self.vault.vault_path}' in Obsidian to view your visual knowledge graph!"
+            )
+            return
+
+        if trimmed == "/approvals":
+            pending = self.approvals.list_pending()
+            if not pending:
+                yield "No commands currently awaiting approval, Sir."
+                return
+            lines = ["Pending Authorization Requests (Two-Man Rule Gate):"]
+            for req in pending:
+                lines.append(f"• [{req.approval_id}] Command: `{req.command}`\n  Reason: {req.reason}")
+            lines.append("\nApprove via `/approve <id>` or cancel via `/reject <id>`.")
+            yield "\n".join(lines)
+            return
+
+        if trimmed.startswith("/approve "):
+            target_id = trimmed.split(" ", 1)[1].strip()
+            req = self.approvals._pending.get(target_id)
+            if not req:
+                yield f"No pending approval found for ID: {target_id}"
+                return
+            yield f"🔓 Authorization granted for `{req.command}`. Executing in sandbox...\n"
+            self.approvals.approve(target_id)
+            res = await self.runner.execute(req.command, bypass_gatekeeper=True, timeout=30.0)
+            status_tag = "SUCCESS" if res.is_success else f"FAILED (Exit {res.exit_code})"
+            yield (
+                f"[{status_tag} in {res.duration_ms}ms]\n"
+                f"{res.stdout or res.stderr or '(no output produced)'}"
+            )
+            return
+
+        if trimmed.startswith("/reject "):
+            target_id = trimmed.split(" ", 1)[1].strip()
+            rejected = self.approvals.reject(target_id)
+            if rejected:
+                yield f"❌ Request {target_id} has been rejected and cancelled by operator."
+            else:
+                yield f"No pending approval found for ID: {target_id}"
+            return
+
+        if trimmed.startswith("/exec "):
+            cmd_to_run = trimmed.split(" ", 1)[1].strip()
+            evaluation = self.runner.gatekeeper.evaluate(cmd_to_run)
+
+            if evaluation.risk_level == CommandRiskLevel.FORBIDDEN:
+                yield (
+                    f"🚫 [SECURITY BLOCK - AST GATEKEEPER]\n"
+                    f"Command strictly prohibited by security policy.\n"
+                    f"• Offending Command: `{cmd_to_run}`\n"
+                    f"• Violation: {evaluation.reason}"
+                )
+                return
+
+            if evaluation.risk_level == CommandRiskLevel.CAUTION:
+                pending_req = self.approvals.request_approval(cmd_to_run, evaluation.reason)
+                yield (
+                    f"⚠️ [Two-Man Rule Authorization Gate]\n"
+                    f"The requested command modifies system state or environment.\n"
+                    f"• Command: `{cmd_to_run}`\n"
+                    f"• Risk Rationale: {evaluation.reason}\n\n"
+                    f"To authorize execution, reply with:\n"
+                    f"  /approve {pending_req.approval_id}\n\n"
+                    f"To deny and cancel, reply with:\n"
+                    f"  /reject {pending_req.approval_id}"
+                )
+                return
+
+            # Risk level is SAFE -> Auto-execute in sandbox
+            yield f"⚡ [Safe Command] Executing `{cmd_to_run}`...\n\n"
+            res = await self.runner.execute(cmd_to_run, timeout=15.0)
+            yield (
+                f"[Output: Exit {res.exit_code} in {res.duration_ms}ms]\n"
+                f"{res.stdout or res.stderr or '(no output produced)'}"
             )
             return
 

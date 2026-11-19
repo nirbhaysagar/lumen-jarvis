@@ -243,12 +243,15 @@ class ModelRouter:
         if any(q in lowered for q in ["capability", "capabilities", "capabilitiues", "what can you do", "features"]):
             reply = (
                 "My current operational capabilities, Sir, include:\n"
-                "1. True Concurrency ('The Spine'): I can run bounded background tasks (up to 4 in parallel) "
-                "with cooperative cancellation tokens and state checkpointing in PostgreSQL—all while speaking with you.\n"
+                "1. True Concurrency ('The Spine'): I run background tasks concurrently (up to 4 in parallel) "
+                "with cooperative cancellation tokens and state checkpointing in PostgreSQL.\n"
                 "2. Unbroken Bi-Temporal Memory: Continuous semantic recall through pgvector HNSW indexing (<3ms query latency).\n"
-                "3. Provenance & Traceability: Every decision and fact is anchored to its source event ID with strict telemetry.\n"
-                "4. Non-Blocking Session Loop: You may spawn background tasks with `/spawn <name>` or inspect them with `/tasks` "
-                "at any time without interrupting our dialogue."
+                "3. Provenance & Traceability: Every decision is anchored to its source event ID via the Trace API (`/trace <id>`).\n"
+                "4. Obsidian Markdown Vault Sync: Automatic bi-directional synchronization of facts and compacted episodes (`/vault`).\n"
+                "5. Safe Computer Control ('The Hands'): Three-ring security defense model with an AST Gatekeeper, "
+                "Two-Man Rule approval gates (`/approve <id>`, `/reject <id>`), and sandboxed execution (`/exec <cmd>`).\n"
+                "6. Non-Blocking Session Loop: You may spawn background tasks (`/spawn <name>`) or execute terminal tools "
+                "without interrupting our dialogue."
             )
         elif bool(re.search(r"\b(hello|hey|hi|good morning|good evening)\b", lowered)):
             reply = "Good day, Sir. All systems and memory engines are operating at peak efficiency. How may I assist you?"
