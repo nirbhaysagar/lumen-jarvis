@@ -20,6 +20,7 @@ from app.domain.models import (
     ReviewProposal,
     ProposalStatus,
     ProposalTier,
+    OutboxRecord,
 )
 from app.domain.ports import StoragePort
 
@@ -206,6 +207,27 @@ class PostgresStorageAdapter(StoragePort):
                     fact.valid_from,
                     fact.valid_to,
                     embedding,
+                )
+
+                # 4. Transactional Outbox: Enqueue event for Obsidian vault sync
+                await conn.execute(
+                    """
+                    INSERT INTO memory_outbox (aggregate_type, aggregate_id, event_type, payload, status)
+                    VALUES ('FACT', $1, 'CREATED', $2::jsonb, 'PENDING');
+                    """,
+                    row["id"],
+                    json.dumps({
+                        "id": str(row["id"]),
+                        "entity": fact.entity,
+                        "attribute": fact.attribute,
+                        "value": fact.value,
+                        "memory_type": fact.memory_type.value if hasattr(fact.memory_type, "value") else str(fact.memory_type),
+                        "epistemic_type": fact.epistemic_type.value if hasattr(fact.epistemic_type, "value") else str(fact.epistemic_type),
+                        "confidence": fact.confidence,
+                        "valid_from": fact.valid_from.isoformat() if fact.valid_from else None,
+                        "valid_to": fact.valid_to.isoformat() if fact.valid_to else None,
+                        "source_event_ids": [str(e) for e in fact.source_event_ids],
+                    }),
                 )
                 return row["id"]
 
@@ -425,30 +447,49 @@ class PostgresStorageAdapter(StoragePort):
             raise RuntimeError("Database pool not connected.")
 
         async with self._pool.acquire() as conn:
-            vec_param = list(embedding) if embedding else None
-            row = await conn.fetchrow(
-                """
-                INSERT INTO entities (id, canonical_name, category, aliases, description, embedding, metadata, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-                ON CONFLICT (canonical_name) DO UPDATE SET
-                    aliases = ARRAY(SELECT DISTINCT unnest(entities.aliases || EXCLUDED.aliases)),
-                    category = COALESCE(EXCLUDED.category, entities.category),
-                    description = COALESCE(EXCLUDED.description, entities.description),
-                    embedding = COALESCE(EXCLUDED.embedding, entities.embedding),
-                    metadata = entities.metadata || EXCLUDED.metadata,
-                    updated_at = NOW()
-                RETURNING id;
-                """,
-                entity.id,
-                entity.canonical_name,
-                entity.category,
-                entity.aliases,
-                entity.description,
-                vec_param,
-                json.dumps(entity.metadata),
-                entity.created_at,
-            )
-            return row["id"]
+            async with conn.transaction():
+                vec_param = list(embedding) if embedding else None
+                row = await conn.fetchrow(
+                    """
+                    INSERT INTO entities (id, canonical_name, category, aliases, description, embedding, metadata, created_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+                    ON CONFLICT (canonical_name) DO UPDATE SET
+                        aliases = ARRAY(SELECT DISTINCT unnest(entities.aliases || EXCLUDED.aliases)),
+                        category = COALESCE(EXCLUDED.category, entities.category),
+                        description = COALESCE(EXCLUDED.description, entities.description),
+                        embedding = COALESCE(EXCLUDED.embedding, entities.embedding),
+                        metadata = entities.metadata || EXCLUDED.metadata,
+                        updated_at = NOW()
+                    RETURNING id;
+                    """,
+                    entity.id,
+                    entity.canonical_name,
+                    entity.category,
+                    entity.aliases,
+                    entity.description,
+                    vec_param,
+                    json.dumps(entity.metadata),
+                    entity.created_at,
+                )
+                entity_id = row["id"]
+
+                # Enqueue Outbox intent for Obsidian Entity note generation
+                await conn.execute(
+                    """
+                    INSERT INTO memory_outbox (aggregate_type, aggregate_id, event_type, payload, status)
+                    VALUES ('ENTITY', $1, 'CREATED', $2::jsonb, 'PENDING');
+                    """,
+                    entity_id,
+                    json.dumps({
+                        "id": str(entity_id),
+                        "canonical_name": entity.canonical_name,
+                        "category": entity.category,
+                        "aliases": entity.aliases,
+                        "description": entity.description,
+                        "metadata": entity.metadata,
+                    }),
+                )
+                return entity_id
 
     async def find_entity_by_name_or_alias(self, name_or_alias: str) -> Entity | None:
         """Lookup an entity by canonical name or alias match (case-insensitive)."""
@@ -509,24 +550,54 @@ class PostgresStorageAdapter(StoragePort):
             raise RuntimeError("Database pool not connected.")
 
         async with self._pool.acquire() as conn:
-            row = await conn.fetchrow(
-                """
-                INSERT INTO triples (id, subject_id, predicate, object_id, confidence, source_event_ids, valid_from, valid_to, metadata, created_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                RETURNING id;
-                """,
-                triple.id,
-                triple.subject_id,
-                triple.predicate,
-                triple.object_id,
-                triple.confidence,
-                triple.source_event_ids,
-                triple.valid_from,
-                triple.valid_to,
-                json.dumps(triple.metadata),
-                triple.created_at,
-            )
-            return row["id"]
+            async with conn.transaction():
+                row = await conn.fetchrow(
+                    """
+                    INSERT INTO triples (id, subject_id, predicate, object_id, confidence, source_event_ids, valid_from, valid_to, metadata, created_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    RETURNING id;
+                    """,
+                    triple.id,
+                    triple.subject_id,
+                    triple.predicate,
+                    triple.object_id,
+                    triple.confidence,
+                    triple.source_event_ids,
+                    triple.valid_from,
+                    triple.valid_to,
+                    json.dumps(triple.metadata),
+                    triple.created_at,
+                )
+                triple_id = row["id"]
+
+                # Fetch canonical names for rich Wikilink generation in Obsidian
+                sub_row = await conn.fetchrow("SELECT canonical_name FROM entities WHERE id = $1", triple.subject_id)
+                obj_row = await conn.fetchrow("SELECT canonical_name FROM entities WHERE id = $1", triple.object_id)
+                sub_name = sub_row["canonical_name"] if sub_row else str(triple.subject_id)
+                obj_name = obj_row["canonical_name"] if obj_row else str(triple.object_id)
+
+                # Enqueue Outbox intent for Obsidian Triple wikilink updates
+                await conn.execute(
+                    """
+                    INSERT INTO memory_outbox (aggregate_type, aggregate_id, event_type, payload, status)
+                    VALUES ('TRIPLE', $1, 'CREATED', $2::jsonb, 'PENDING');
+                    """,
+                    triple_id,
+                    json.dumps({
+                        "id": str(triple_id),
+                        "subject_id": str(triple.subject_id),
+                        "subject_name": sub_name,
+                        "predicate": triple.predicate,
+                        "object_id": str(triple.object_id),
+                        "object_name": obj_name,
+                        "confidence": triple.confidence,
+                        "source_event_ids": [str(e) for e in triple.source_event_ids],
+                        "valid_from": triple.valid_from.isoformat() if triple.valid_from else None,
+                        "valid_to": triple.valid_to.isoformat() if triple.valid_to else None,
+                        "metadata": triple.metadata,
+                    }),
+                )
+                return triple_id
 
     async def get_active_triples_for_subject(self, subject_id: uuid.UUID, predicate: str | None = None) -> list[Triple]:
         """Fetch all currently active triples for a subject entity (valid_to IS NULL)."""
@@ -753,4 +824,116 @@ class PostgresStorageAdapter(StoragePort):
                 }
                 for r in rows
             ]
+
+    async def fetch_pending_outbox(self, limit: int = 50) -> list[OutboxRecord]:
+        """Fetch pending records from the transactional outbox ordered by created_at ASC."""
+        if not self._pool:
+            raise RuntimeError("Database pool not connected.")
+
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, aggregate_type, aggregate_id, event_type, payload, status, retry_count, error, created_at, processed_at
+                FROM memory_outbox
+                WHERE status = 'PENDING'
+                ORDER BY created_at ASC
+                LIMIT $1;
+                """,
+                limit,
+            )
+            return [
+                OutboxRecord(
+                    id=r["id"],
+                    aggregate_type=r["aggregate_type"],
+                    aggregate_id=r["aggregate_id"],
+                    event_type=r["event_type"],
+                    payload=json.loads(r["payload"]) if isinstance(r["payload"], str) else (r["payload"] or {}),
+                    status=r["status"],
+                    retry_count=r["retry_count"],
+                    error=r["error"],
+                    created_at=r["created_at"],
+                    processed_at=r["processed_at"],
+                )
+                for r in rows
+            ]
+
+    async def mark_outbox_processed(self, outbox_id: uuid.UUID) -> bool:
+        """Mark an outbox record as PROCESSED with current timestamp."""
+        if not self._pool:
+            raise RuntimeError("Database pool not connected.")
+
+        async with self._pool.acquire() as conn:
+            result = await conn.execute(
+                """
+                UPDATE memory_outbox
+                SET status = 'PROCESSED', processed_at = NOW(), error = NULL
+                WHERE id = $1;
+                """,
+                outbox_id,
+            )
+            return result.endswith("1")
+
+    async def mark_outbox_failed(self, outbox_id: uuid.UUID, error: str) -> bool:
+        """Mark an outbox record as FAILED with an error message and increment retry count."""
+        if not self._pool:
+            raise RuntimeError("Database pool not connected.")
+
+        async with self._pool.acquire() as conn:
+            result = await conn.execute(
+                """
+                UPDATE memory_outbox
+                SET status = 'FAILED', retry_count = retry_count + 1, error = $2
+                WHERE id = $1;
+                """,
+                outbox_id,
+                error,
+            )
+            return result.endswith("1")
+
+    async def get_outbox_stats(self) -> dict[str, int]:
+        """Return counts of PENDING, PROCESSED, and FAILED outbox events."""
+        if not self._pool:
+            raise RuntimeError("Database pool not connected.")
+
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT status, count(*) as count
+                FROM memory_outbox
+                GROUP BY status;
+                """
+            )
+            stats = {"PENDING": 0, "PROCESSED": 0, "FAILED": 0, "TOTAL": 0}
+            for r in rows:
+                st = r["status"]
+                cnt = r["count"]
+                stats[st] = cnt
+                stats["TOTAL"] += cnt
+            return stats
+
+    async def enqueue_outbox_event(
+        self,
+        aggregate_type: str,
+        aggregate_id: uuid.UUID,
+        event_type: str,
+        payload: dict,
+    ) -> uuid.UUID:
+        """Explicitly enqueue an event into the transactional outbox."""
+        if not self._pool:
+            raise RuntimeError("Database pool not connected.")
+
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO memory_outbox (aggregate_type, aggregate_id, event_type, payload, status)
+                VALUES ($1, $2, $3, $4::jsonb, 'PENDING')
+                RETURNING id;
+                """,
+                aggregate_type,
+                aggregate_id,
+                event_type,
+                json.dumps(payload),
+            )
+            return row["id"]
+
 

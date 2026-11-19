@@ -28,6 +28,7 @@ class ObsidianVaultSync:
         self.memories_dir = self.vault_path / "memories"
         self.episodes_dir = self.vault_path / "episodes"
         self.daily_dir = self.vault_path / "daily"
+        self.entities_dir = self.vault_path / "entities"
 
         self._ensure_directories()
 
@@ -35,6 +36,7 @@ class ObsidianVaultSync:
         self.memories_dir.mkdir(parents=True, exist_ok=True)
         self.episodes_dir.mkdir(parents=True, exist_ok=True)
         self.daily_dir.mkdir(parents=True, exist_ok=True)
+        self.entities_dir.mkdir(parents=True, exist_ok=True)
 
     def _wikilinkify(self, text: str) -> str:
         """Adds wikilinks to recognized technologies, programming languages, and entities."""
@@ -141,9 +143,113 @@ tags:
         filepath.write_text(content.strip() + "\n", encoding="utf-8")
         return filepath
 
+    def _sanitize_name(self, name: str) -> str:
+        return re.sub(r'[\\/*?:"<>|]', "_", name).strip()
+
+    def export_entity(self, entity: dict[str, Any]) -> Path:
+        """Exports an entity node into an Obsidian Markdown note with [[Wikilinks]]."""
+        canonical_name = entity.get("canonical_name", "Unknown")
+        entity_id = entity.get("id", "unknown")
+        category = entity.get("category", "concept")
+        aliases = entity.get("aliases", [])
+        description = entity.get("description", "") or f"Canonical entity representing {canonical_name}."
+
+        clean_filename = f"{self._sanitize_name(canonical_name)}.md"
+        filepath = self.entities_dir / clean_filename
+
+        alias_list_str = "\n".join([f"  - '{a}'" for a in aliases]) if aliases else "  []"
+        alias_badges = ", ".join([f"[[{a}]]" for a in aliases]) if aliases else "*None recorded*"
+
+        # Preserve existing relationships if file already exists
+        existing_relations_block = ""
+        if filepath.exists():
+            old_text = filepath.read_text(encoding="utf-8")
+            if "### 🌐 Knowledge Graph Connections" in old_text:
+                parts = old_text.split("### 🌐 Knowledge Graph Connections")
+                if len(parts) > 1:
+                    existing_relations_block = "\n### 🌐 Knowledge Graph Connections" + parts[1]
+
+        if not existing_relations_block:
+            existing_relations_block = """
+### 🌐 Knowledge Graph Connections
+| Direction | Relation | Entity | Confidence | Status |
+| :--- | :--- | :--- | :--- | :--- |
+"""
+
+        content = f"""---
+id: {entity_id}
+canonical_name: {canonical_name}
+category: {category}
+aliases:
+{alias_list_str}
+tags:
+  - lumen/entity
+  - category/{category}
+---
+
+# [[{canonical_name}]]
+
+> {self._wikilinkify(description)}
+
+* **Known Aliases:** {alias_badges}
+* **Category:** `#{category}`
+* **Entity ID:** `{entity_id}`
+
+{existing_relations_block.strip()}
+"""
+        filepath.write_text(content.strip() + "\n", encoding="utf-8")
+        return filepath
+
+    def export_triple(self, triple: dict[str, Any]) -> tuple[Path, Path]:
+        """Updates subject and object entity notes with bi-directional Wikilink relationships."""
+        sub_name = triple.get("subject_name") or str(triple.get("subject_id", "Unknown"))
+        obj_name = triple.get("object_name") or str(triple.get("object_id", "Unknown"))
+        predicate = triple.get("predicate", "RELATES_TO")
+        confidence = float(triple.get("confidence", 1.0))
+        valid_to = triple.get("valid_to")
+        status = "ACTIVE" if not valid_to else "SUPERSEDED"
+
+        # Ensure base notes exist for both entities
+        sub_path = self.entities_dir / f"{self._sanitize_name(sub_name)}.md"
+        if not sub_path.exists():
+            self.export_entity({"canonical_name": sub_name, "category": "auto_created"})
+
+        obj_path = self.entities_dir / f"{self._sanitize_name(obj_name)}.md"
+        if not obj_path.exists():
+            self.export_entity({"canonical_name": obj_name, "category": "auto_created"})
+
+        # Outbound link on Subject
+        outbound_row = f"| Outbound (→) | [[{predicate}]] | [[{obj_name}]] | {confidence:.2f} | {status} |"
+        sub_content = sub_path.read_text(encoding="utf-8")
+        if outbound_row not in sub_content:
+            if "| :--- | :--- | :--- | :--- | :--- |" in sub_content:
+                sub_content = sub_content.replace(
+                    "| :--- | :--- | :--- | :--- | :--- |",
+                    f"| :--- | :--- | :--- | :--- | :--- |\n{outbound_row}",
+                )
+            else:
+                sub_content += f"\n\n### 🌐 Knowledge Graph Connections\n| Direction | Relation | Entity | Confidence | Status |\n| :--- | :--- | :--- | :--- | :--- |\n{outbound_row}\n"
+            sub_path.write_text(sub_content.strip() + "\n", encoding="utf-8")
+
+        # Inbound link on Object
+        inbound_row = f"| Inbound (←) | [[{predicate}]] | [[{sub_name}]] | {confidence:.2f} | {status} |"
+        obj_content = obj_path.read_text(encoding="utf-8")
+        if inbound_row not in obj_content:
+            if "| :--- | :--- | :--- | :--- | :--- |" in obj_content:
+                obj_content = obj_content.replace(
+                    "| :--- | :--- | :--- | :--- | :--- |",
+                    f"| :--- | :--- | :--- | :--- | :--- |\n{inbound_row}",
+                )
+            else:
+                obj_content += f"\n\n### 🌐 Knowledge Graph Connections\n| Direction | Relation | Entity | Confidence | Status |\n| :--- | :--- | :--- | :--- | :--- |\n{inbound_row}\n"
+            obj_path.write_text(obj_content.strip() + "\n", encoding="utf-8")
+
+        return sub_path, obj_path
+
     def get_vault_stats(self) -> dict[str, int]:
         """Returns counts of generated Markdown files across vault categories."""
         return {
+            "entities": len(list(self.entities_dir.glob("*.md"))),
             "memories": len(list(self.memories_dir.glob("*.md"))),
             "episodes": len(list(self.episodes_dir.glob("*.md"))),
             "daily": len(list(self.daily_dir.glob("*.md"))),

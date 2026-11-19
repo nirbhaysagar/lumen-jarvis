@@ -38,6 +38,12 @@ from app.schemas.graph import (
     GraphTraversalResponse,
     TripleResponse,
 )
+from app.schemas.outbox import (
+    OutboxItem,
+    OutboxPendingResponse,
+    OutboxStatsResponse,
+    OutboxFailRequest,
+)
 
 router = APIRouter(prefix="/api/v1")
 
@@ -433,4 +439,75 @@ async def traverse_graph(
             for e in edges
         ],
     )
+
+
+# ==========================================
+# Transactional Outbox Endpoints
+# ==========================================
+
+@router.get("/outbox/pending", response_model=OutboxPendingResponse)
+async def list_pending_outbox(
+    storage: Annotated[StoragePort, Depends(get_storage)],
+    limit: int = 50,
+):
+    """Fetch pending events from the transactional outbox waiting for sync (e.g. to Obsidian)."""
+    rows = await storage.fetch_pending_outbox(limit=limit)
+    return OutboxPendingResponse(
+        items=[
+            OutboxItem(
+                id=r.id,
+                aggregate_type=r.aggregate_type,
+                aggregate_id=r.aggregate_id,
+                event_type=r.event_type,
+                payload=r.payload,
+                status=r.status,
+                retry_count=r.retry_count,
+                error=r.error,
+                created_at=r.created_at,
+                processed_at=r.processed_at,
+            )
+            for r in rows
+        ],
+        count=len(rows),
+    )
+
+
+@router.post("/outbox/{outbox_id}/ack")
+async def ack_outbox_event(
+    outbox_id: uuid.UUID,
+    storage: Annotated[StoragePort, Depends(get_storage)],
+):
+    """Mark an outbox event as PROCESSED after successful vault sync or delivery."""
+    success = await storage.mark_outbox_processed(outbox_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Outbox event not found")
+    return {"outbox_id": str(outbox_id), "status": "PROCESSED"}
+
+
+@router.post("/outbox/{outbox_id}/fail")
+async def fail_outbox_event(
+    outbox_id: uuid.UUID,
+    req: OutboxFailRequest,
+    storage: Annotated[StoragePort, Depends(get_storage)],
+):
+    """Mark an outbox event as FAILED with an error message and increment its retry count."""
+    success = await storage.mark_outbox_failed(outbox_id, req.error)
+    if not success:
+        raise HTTPException(status_code=404, detail="Outbox event not found")
+    return {"outbox_id": str(outbox_id), "status": "FAILED", "error": req.error}
+
+
+@router.get("/outbox/stats", response_model=OutboxStatsResponse)
+async def get_outbox_stats(
+    storage: Annotated[StoragePort, Depends(get_storage)],
+):
+    """Fetch counts of PENDING, PROCESSED, and FAILED outbox events."""
+    stats = await storage.get_outbox_stats()
+    return OutboxStatsResponse(
+        pending=stats.get("PENDING", 0),
+        processed=stats.get("PROCESSED", 0),
+        failed=stats.get("FAILED", 0),
+        total=stats.get("TOTAL", 0),
+    )
+
 

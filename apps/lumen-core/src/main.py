@@ -7,6 +7,7 @@ import asyncio
 from src.concurrency.supervisor import TaskSupervisor
 from src.runtime.session import ConversationSession
 from src.memory_client.client import MemoryServiceClient
+from src.vault.outbox_worker import OutboxWorker
 
 BANNER = r"""
   _       _    _  __  __  ______  _   _ 
@@ -37,14 +38,18 @@ async def main():
     memory_client = MemoryServiceClient(base_url="http://localhost:8000")
     supervisor = await TaskSupervisor.create_with_postgres(max_parallel_tasks=4)
     session = ConversationSession(memory_client=memory_client, supervisor=supervisor)
+    outbox_worker = OutboxWorker(memory_client=memory_client, vault_sync=session.vault)
+    await outbox_worker.start()
 
     print("Status: Connected to Memory Engine (PostgreSQL + pgvector).")
+    print("Outbox: Transactional Outbox Worker active (PostgreSQL LISTEN/NOTIFY ↔ Obsidian Vault).")
     print("Concurrency: Task Supervisor active with MAX_PARALLEL_TASKS = 4 (Postgres Checkpointing).")
     if session.router.active_provider:
         print(f"Cognitive Engine: Live Streaming [{session.router.active_provider.upper()}]")
     else:
         print("Cognitive Engine: Local JARVIS Offline Protocol (Add OPENAI_API_KEY or GROQ_API_KEY to .env for live LLM generation).")
     print("Commands:")
+    print("  • /outbox          - View Transactional Outbox status (Postgres ↔ Obsidian)")
     print("  • /proposals       - View pending knowledge proposals in the Review Queue")
     print("  • /approve-proposal <id> - Authorize a contradictory belief update")
     print("  • /reject-proposal <id>  - Reject and dismiss a proposed belief change")
@@ -91,6 +96,7 @@ async def main():
             print("\nInterrupt received. Good day, Sir.")
             break
 
+    await outbox_worker.stop()
     await supervisor.shutdown()
     await memory_client.close()
 

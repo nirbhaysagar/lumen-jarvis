@@ -153,11 +153,32 @@ class ConversationSession:
             yield (
                 f"📚 Obsidian Knowledge Vault Status:\n"
                 f"• Vault Path: {self.vault.vault_path}\n"
+                f"• Entity Cards: {stats.get('entities', 0)}\n"
                 f"• Canonical Memory Notes: {stats['memories']}\n"
                 f"• Compacted Episodes: {stats['episodes']}\n"
                 f"• Total Markdown Cards: {stats['total_notes']}\n\n"
                 f"You can open '{self.vault.vault_path}' in Obsidian to view your visual knowledge graph!"
             )
+            return
+
+        if trimmed == "/outbox":
+            outbox_stats = await self.memory.get_outbox_stats()
+            stats = self.vault.get_vault_stats()
+            if outbox_stats:
+                yield (
+                    f"📮 Transactional Outbox (PostgreSQL ↔ Obsidian):\n"
+                    f"• Pending Sync Queue: {outbox_stats.get('pending', 0)}\n"
+                    f"• Successfully Synced: {outbox_stats.get('processed', 0)}\n"
+                    f"• Failed Syncs: {outbox_stats.get('failed', 0)}\n"
+                    f"• Total Outbox Events: {outbox_stats.get('total', 0)}\n\n"
+                    f"📚 Obsidian Vault Notes:\n"
+                    f"• Entity Cards: {stats.get('entities', 0)}\n"
+                    f"• Memory Notes: {stats.get('memories', 0)}\n"
+                    f"• Episode Synopses: {stats.get('episodes', 0)}\n"
+                    f"• Total Markdown Notes: {stats.get('total_notes', 0)}"
+                )
+            else:
+                yield "Could not retrieve outbox statistics from memory engine."
             return
 
         if trimmed == "/approvals":
@@ -374,7 +395,7 @@ class ConversationSession:
             event_id = event_res.get("id")
             if event_id:
                 entity, attribute = classify_preference(user_text)
-                fact_res = await self.memory.save_fact(
+                await self.memory.save_fact(
                     entity=entity,
                     attribute=attribute,
                     value=user_text,
@@ -383,15 +404,6 @@ class ConversationSession:
                     epistemic_type="decision",
                     trace_id=trace_id,
                 )
-                if fact_res:
-                    self.vault.export_fact({
-                        "id": fact_res.get("id"),
-                        "entity": entity,
-                        "attribute": attribute,
-                        "value": user_text,
-                        "memory_type": "decision",
-                        "epistemic_type": "decision",
-                    })
 
         # 7b. Submit extracted relationship triples to Knowledge Graph & Review Queue
         extracted_triples = extract_triples_from_utterance(user_text)

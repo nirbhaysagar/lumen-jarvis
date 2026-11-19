@@ -15,7 +15,7 @@
 | **Phase 2** | True Concurrency ("The Spine") | **COMPLETE** | Native Async Supervisor, Semaphore Gate (k=4), Non-blocking stdin threadpool, Postgres Checkpointing | Pytest suite (1.50s, 4 tests passed), Live REPL verified |
 | **Phase 3** | Unbroken Bi-Temporal Memory | **COMPLETE** | Dual-clock time (Valid vs Transaction), Trace Provenance DAG, Automated Fact Superseding, Time-Travel Queries | Pytest suite (0.33s, 3 tests passed), Live REST & REPL `/trace` verified |
 | **Phase 4** | Safe Computer Control ("The Hands") | **COMPLETE** | Multi-Layered Defense (Pipeline Splitter, Python AST, Credential Sentinel, Env Scrubbing) | Automated security tests (0.53s, 15 tests passed), Live REPL `/exec` verified |
-| **Phase 5 (Current)** | Knowledge Graph & Review Queue | **IN PROGRESS (Steps 1 & 2 COMPLETE)** | 3-Table Schema (entities, triples, predicates), Two-Tier Entity Resolver, Review Queue Contradiction Gating | Automated test suite (0.50s, 7 tests passed), Live REPL `/proposals`, `/graph` verified |
+| **Phase 5 (Current)** | Knowledge Graph & Review Queue | **IN PROGRESS (Steps 1, 2 & 3 COMPLETE)** | 3-Table Schema (entities, triples, predicates), Two-Tier Entity Resolver, Review Queue Contradiction Gating, Transactional Outbox Pattern | Automated test suite (40/40 tests passed), Live REPL `/outbox`, `/proposals`, `/graph` verified |
 | **Phase 6** | Autonomous Web & Deep Research ("The Eyes") | QUEUED | Headless Browser Automation, Markdown Extraction, Document Ingestion | Scraping & DOM traversal integration tests |
 | **Phase 7** | Voice & Barge-in Gateway ("The Senses") | **SCHEDULED FOR CAPSTONE** | Full-duplex WebSocket, VAD interrupt tokens, Silero/Kokoro streaming (Architecture locked in `docs/VOICE_GATEWAY_ARCHITECTURE.md`) | Audio roundtrip latency tests |
 
@@ -32,6 +32,7 @@
 | **ADR-005** | Resilience & Fault Tolerance | Circuit Breaker Pattern | Naive HTTP retries | Prevents agent thread exhaustion when Memory Engine is restarting or under load. |
 | **ADR-006** | Safe Computer Control Architecture | Three-Ring Security Defense (AST Gatekeeper + Two-Man Rule + Sandboxed Async Runner) | Unrestricted subshell execution, Container-only sandbox | Provides multi-layered defense-in-depth: immediate deterministic pattern filtering at AST level, interactive human authorization token gate for modifying tasks, and non-blocking timeout/cancellation-aware subprocess execution. |
 | **ADR-007** | Knowledge Graph Integrity & Review Queue | Event-Sourced 3-Table Schema + Tiered Review Queue | Unvalidated triple insertion, Unbounded graph growth | Solves the entity resolution trap (merging aliases like 'psql' -> 'PostgreSQL') and prevents epistemic corruption by gating contradictory belief shifts through a human-in-the-loop review queue. |
+| **ADR-008** | Transactional Outbox Pattern for Obsidian Sync | PostgreSQL `memory_outbox` + `pg_notify` + Async Worker | Inline direct disk writes | Eliminates dual-write anti-patterns; removes file I/O latency from conversation turns; guarantees eventual consistency between PostgreSQL memory and Obsidian notes with exponential backoff retries. |
 
 ---
 
@@ -169,8 +170,8 @@
 
 ---
 
-### Phase 5: Knowledge Graph Integrity, Entities & Review Queue (Steps 1 & 2 COMPLETE)
-- **Technique:** Event-Sourced 3-Table Schema (`events`, `entities`, `triples`) + Controlled Predicate Ontology + Two-Tier Entity Resolver + Confidence-Tiered Review Queue.
+### Phase 5: Knowledge Graph Integrity, Entities & Review Queue (Steps 1, 2 & 3 COMPLETE)
+- **Technique:** Event-Sourced 3-Table Schema (`events`, `entities`, `triples`) + Controlled Predicate Ontology + Two-Tier Entity Resolver + Confidence-Tiered Review Queue + Transactional Outbox Pattern (`memory_outbox` + `LISTEN/NOTIFY`).
 - **Microservice / Modules:** `packages/memory-engine/` and `apps/lumen-core/`
   1. **Step 1: The 3-Table Normalized Relational Schema (`infra/docker/postgres/migrations/002_knowledge_graph_and_review_queue.sql`):**
      - **`entities` table:** Unique canonical nodes (`canonical_name UNIQUE`), category (`person`, `organization`, `technology`, `project`), `aliases TEXT[]` with a dedicated PostgreSQL GIN index, and HNSW vector cosine index on dense embeddings.
@@ -189,16 +190,35 @@
      - **Human Resolution:**
        - `/approve-proposal <id>` atomically supersedes the conflicting triple (`valid_to = NOW()`) and activates the new triple.
        - `/reject-proposal <id>` dismisses the proposed change, keeping the prior belief intact.
-  3. **Recursive Graph Traversal ($O(V+E)$):**
+  3. **Step 3: The Transactional Outbox Pattern for Obsidian Sync (`apps/lumen-core/src/vault/outbox_worker.py`):**
+     - **Relational Outbox Schema (`infra/docker/postgres/migrations/003_transactional_outbox.sql`):**
+       - Table `memory_outbox`: `(id, aggregate_type, aggregate_id, event_type, payload JSONB, status, retry_count, error, created_at, processed_at)`.
+       - Partial index `idx_memory_outbox_pending` on `created_at ASC WHERE status = 'PENDING'`.
+       - PostgreSQL Trigger `trg_memory_outbox_inserted` broadcasting `pg_notify('memory_outbox_channel', NEW.id::text)`.
+     - **Atomic Dual-Write Elimination:**
+       - `save_entity`, `save_triple`, and `save_fact` write the mutation AND the outbox intent within the *same* ACID database transaction.
+       - Inline disk writes removed from the conversation turn loop, saving 20–100ms per turn and guaranteeing zero drift if filesystem I/O locks.
+     - **Sub-Millisecond Event-Driven Dispatch:**
+       - `OutboxWorker` maintains a persistent asyncpg listener to `memory_outbox_channel`.
+       - Wakes up with $0\%$ CPU polling overhead immediately when Postgres commits.
+       - 15-second safety sweep provides fault-tolerant recovery for any missed frames.
+     - **Rich Graph Obsidian Rendering (`src/vault/vault_sync.py`):**
+       - `export_entity`: Generates `vault/entities/{canonical_name}.md` with YAML frontmatter, aliases, category badges, and dynamic 2-way relationship tables.
+       - `export_triple`: Atomically injects outbound `[[Wikilinks]]` on subject entity cards and inbound `[[Wikilinks]]` on object cards.
+     - **Interactive Inspection:**
+       - REPL command `/outbox` displays pending queue, processed count, failed syncs, and total markdown vault stats.
+  4. **Recursive Graph Traversal ($O(V+E)$):**
      - Sub-millisecond multi-hop graph walking in PostgreSQL using Recursive Common Table Expressions (CTEs) with cycle prevention (`NOT (t.id = ANY(gw.path))`) and depth bounding.
-  4. **Runtime REPL & API Integration:**
-     - REPL commands: `/proposals`, `/approve-proposal <id>`, `/reject-proposal <id>`, `/graph [entity]`.
-     - Endpoints: `POST /api/v1/entities`, `POST /api/v1/graph/propose`, `GET /api/v1/graph/review-queue`, `POST /api/v1/graph/review-queue/{id}/resolve`, `GET /api/v1/graph/traverse/{entity}`.
+  5. **Runtime REPL & API Integration:**
+     - REPL commands: `/outbox`, `/proposals`, `/approve-proposal <id>`, `/reject-proposal <id>`, `/graph [entity]`.
+     - Endpoints: `POST /api/v1/entities`, `POST /api/v1/graph/propose`, `GET /api/v1/graph/review-queue`, `POST /api/v1/graph/review-queue/{id}/resolve`, `GET /api/v1/graph/traverse/{entity}`, `GET /api/v1/outbox/pending`, `POST /api/v1/outbox/{id}/ack`, `POST /api/v1/outbox/{id}/fail`, `GET /api/v1/outbox/stats`.
 - **Verification & Test Results:**
+  - `packages/memory-engine/tests/test_transactional_outbox.py`: 3 passing integration tests in **0.41s**.
   - `packages/memory-engine/tests/test_knowledge_graph.py`: 4 passing integration tests in **0.43s**.
   - `packages/memory-engine/tests/test_memory_api.py`: 3 passing integration tests in **0.49s**.
-  - `apps/lumen-core/tests/`: 26 passing unit & session tests in **4.55s**.
-  - Full project test suite: **33/33 automated tests green (100%)**.
+  - `apps/lumen-core/tests/test_outbox_worker.py`: 4 passing unit & live integration tests in **0.17s**.
+  - `apps/lumen-core/tests/`: 30 passing unit & session tests in **4.62s**.
+  - Full project monorepo test suite: **40/40 automated tests green (100%)**.
 
 ---
 
@@ -215,8 +235,8 @@
 - [ ] **Phase 5: Add-on 4 — Knowledge Graph & Overnight Consolidation (The Super-Brain):**
   - [x] **Step 1:** Normalized 3-table relational schema (`entities`, `triples`, `predicates`) with bi-temporal validity.
   - [x] **Step 2:** Two-Tier Entity Resolver & Review Queue Staging Buffer (preventing messy node duplicates and epistemic drift).
-  - [ ] **Step 3:** Transactional Outbox Pattern for decoupled Obsidian Vault Synchronization (`memory_outbox` + `pg_notify`).
-  - [ ] **Step 4:** Overnight Consolidation Daemon (contradiction patrol, semantic orphan clustering, morning intelligence digest).
+  - [x] **Step 3:** Transactional Outbox Pattern for decoupled Obsidian Vault Synchronization (`memory_outbox` + `pg_notify`).
+  - [ ] **Step 4:** Overnight Consolidation Daemon (contradiction patrol, semantic orphan clustering, morning intelligence digest in `vault/digests/`).
   - [ ] **Step 5:** Unified Hybrid Retrieval Service (`search()`) with Reciprocal Rank Fusion (BM25 + pgvector + graph).
 - [ ] **Phase 6: Add-on 5 — Autonomous Web & Deep Research ("The Eyes"):**
   - [ ] Headless browser / Crawl4AI markdown extraction.

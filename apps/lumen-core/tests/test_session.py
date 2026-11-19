@@ -65,5 +65,13 @@ async def test_session_proposals_and_graph_commands():
     graph_reply = "".join(graph_tokens)
     assert ("Knowledge Graph" in graph_reply) or ("No active graph relationships" in graph_reply)
 
+    # 3. Check /outbox command
+    outbox_tokens = []
+    async for token in session.process_turn("/outbox"):
+        outbox_tokens.append(token)
+    outbox_reply = "".join(outbox_tokens)
+    assert "Transactional Outbox" in outbox_reply
+    assert "Pending Sync Queue" in outbox_reply
+
     await memory_client.close()
 

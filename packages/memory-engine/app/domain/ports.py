@@ -17,6 +17,7 @@ from .models import (
     ReviewProposal,
     ProposalStatus,
     ProposalTier,
+    OutboxRecord,
 )
 
 
@@ -122,6 +123,26 @@ class StoragePort(ABC):
         max_depth: int = 2,
     ) -> list[dict]:
         """Traverse connected entities and triples up to max_depth using recursive SQL."""
+        pass
+
+    @abstractmethod
+    async def fetch_pending_outbox(self, limit: int = 50) -> list[OutboxRecord]:
+        """Fetch pending records from the transactional outbox ordered by created_at ASC."""
+        pass
+
+    @abstractmethod
+    async def mark_outbox_processed(self, outbox_id: uuid.UUID) -> bool:
+        """Mark an outbox record as PROCESSED with current timestamp."""
+        pass
+
+    @abstractmethod
+    async def mark_outbox_failed(self, outbox_id: uuid.UUID, error: str) -> bool:
+        """Mark an outbox record as FAILED with an error message and increment retry count."""
+        pass
+
+    @abstractmethod
+    async def get_outbox_stats(self) -> dict[str, int]:
+        """Return counts of PENDING, PROCESSED, and FAILED outbox events."""
         pass
 
 

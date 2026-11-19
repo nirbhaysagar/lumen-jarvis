@@ -140,3 +140,19 @@ class ReviewProposal:
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     reviewed_at: datetime | None = None
 
+
+@dataclass
+class OutboxRecord:
+    """Outbox row for transactional, reliable event delivery (e.g. Obsidian sync)."""
+    aggregate_type: str                 # 'ENTITY', 'TRIPLE', 'FACT', 'EPISODE'
+    aggregate_id: uuid.UUID
+    event_type: str                     # 'CREATED', 'UPDATED', 'SUPERSEDED'
+    payload: dict
+    status: str = "PENDING"             # 'PENDING', 'PROCESSED', 'FAILED'
+    retry_count: int = 0
+    error: str | None = None
+    id: uuid.UUID = field(default_factory=uuid.uuid4)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    processed_at: datetime | None = None
+
+

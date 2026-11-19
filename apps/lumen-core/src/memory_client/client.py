@@ -306,5 +306,104 @@ class MemoryServiceClient:
             self._record_failure()
             return None
 
+    async def list_pending_outbox(
+        self,
+        limit: int = 50,
+        trace_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Fetch pending outbox records waiting for vault sync."""
+        if self.circuit_open:
+            return []
+
+        headers = {"X-Trace-ID": trace_id} if trace_id else {}
+        try:
+            resp = await self._client.get(
+                f"{self.base_url}/api/v1/outbox/pending",
+                headers=headers,
+                params={"limit": limit},
+            )
+            if resp.status_code == 200:
+                self._record_success()
+                return resp.json().get("items", [])
+            return []
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError):
+            self._record_failure()
+            return []
+
+    async def ack_outbox_event(
+        self,
+        outbox_id: str,
+        trace_id: str | None = None,
+    ) -> bool:
+        """Acknowledge an outbox event as successfully processed."""
+        if self.circuit_open:
+            return False
+
+        headers = {"X-Trace-ID": trace_id} if trace_id else {}
+        try:
+            resp = await self._client.post(
+                f"{self.base_url}/api/v1/outbox/{outbox_id}/ack",
+                headers=headers,
+            )
+            if resp.status_code == 200:
+                self._record_success()
+                return True
+            return False
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError):
+            self._record_failure()
+            return False
+
+    async def fail_outbox_event(
+        self,
+        outbox_id: str,
+        error: str,
+        trace_id: str | None = None,
+    ) -> bool:
+        """Mark an outbox event as failed with error details."""
+        if self.circuit_open:
+            return False
+
+        headers = {"X-Trace-ID": trace_id} if trace_id else {}
+        try:
+            resp = await self._client.post(
+                f"{self.base_url}/api/v1/outbox/{outbox_id}/fail",
+                headers=headers,
+                json={"error": error},
+            )
+            if resp.status_code == 200:
+                self._record_success()
+                return True
+            return False
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError):
+            self._record_failure()
+            return False
+
+    async def get_outbox_stats(
+        self,
+        trace_id: str | None = None,
+    ) -> dict[str, int] | None:
+        """Fetch transactional outbox queue statistics."""
+        if self.circuit_open:
+            return None
+
+        headers = {"X-Trace-ID": trace_id} if trace_id else {}
+        try:
+            resp = await self._client.get(
+                f"{self.base_url}/api/v1/outbox/stats",
+                headers=headers,
+            )
+            if resp.status_code == 200:
+                self._record_success()
+                return resp.json()
+            return None
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError):
+            self._record_failure()
+            return None
+
     async def close(self):
         await self._client.aclose()
+
+
+# Backward compatibility alias
+MemoryClient = MemoryServiceClient
+
