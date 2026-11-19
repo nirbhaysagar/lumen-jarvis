@@ -14,8 +14,10 @@
 | **Phase 1** | Lumen Core (Agent Runtime) | **COMPLETE** | Decoupled Circuit Breaker Client, Dual-Speed Routing, Persona Engine | Pytest (0.78s), Interactive REPL |
 | **Phase 2** | True Concurrency ("The Spine") | **COMPLETE** | Native Async Supervisor, Semaphore Gate (k=4), Non-blocking stdin threadpool, Postgres Checkpointing | Pytest suite (1.50s, 4 tests passed), Live REPL verified |
 | **Phase 3** | Unbroken Bi-Temporal Memory | **COMPLETE** | Dual-clock time (Valid vs Transaction), Trace Provenance DAG, Automated Fact Superseding, Time-Travel Queries | Pytest suite (0.33s, 3 tests passed), Live REST & REPL `/trace` verified |
-| **Phase 4** | Safe Computer Control ("The Hands") | **COMPLETE** | Three-Ring Security (AST Gatekeeper + Two-Man Rule + Sandboxed Async Runner) | Automated security tests (0.22s, 8 tests passed), Live REPL `/exec` verified |
-| **Phase 5 (Current)** | Voice & Barge-in Gateway | **IN PROGRESS** | Full-duplex WebSocket, VAD interrupt tokens, Silero/Kokoro streaming | Audio roundtrip latency tests |
+| **Phase 4** | Safe Computer Control ("The Hands") | **COMPLETE** | Multi-Layered Defense (Pipeline Splitter, Python AST, Credential Sentinel, Env Scrubbing) | Automated security tests (0.53s, 15 tests passed), Live REPL `/exec` verified |
+| **Phase 5** | Knowledge Graph & Overnight Consolidation | **NEXT** | Entity-Relation Triples, Graph Traversal, Autonomous Contradiction Resolution Daemon | Graph retrieval latency, ACID entity resolution tests |
+| **Phase 6** | Autonomous Web & Deep Research ("The Eyes") | QUEUED | Headless Browser Automation, Markdown Extraction, Document Ingestion | Scraping & DOM traversal integration tests |
+| **Phase 7** | Voice & Barge-in Gateway ("The Senses") | **SCHEDULED FOR CAPSTONE** | Full-duplex WebSocket, VAD interrupt tokens, Silero/Kokoro streaming (Architecture locked in `docs/VOICE_GATEWAY_ARCHITECTURE.md`) | Audio roundtrip latency tests |
 
 ---
 
@@ -176,7 +178,16 @@
   - [x] AST Gatekeeper parsing destructive commands (`rm -rf`, `DROP TABLE`).
   - [x] Two-Man Rule approval gates (`AWAITING_APPROVAL`, `/approve`, `/reject`).
   - [x] Sandboxed execution runner with timeouts, cancellation, and stdout/stderr capture.
-- [ ] **Phase 5: Add-on 4 — Voice & Barge-in Gateway:**
-  - [ ] Full-duplex WebSocket server.
-  - [ ] Silero VAD (Voice Activity Detection) with barge-in interrupt tokens.
-  - [ ] Kokoro TTS streaming engine.
+- [ ] **Phase 5: Add-on 4 — Knowledge Graph & Overnight Consolidation (The Super-Brain):**
+  - [ ] Entity-Relation triple extraction (`(Subject)-[PREDICATE]->(Object)`).
+  - [ ] Relational graph schema in PostgreSQL with graph traversal queries.
+  - [ ] Overnight consolidation background daemon (detecting contradictions, merging duplicate memories, generating daily digests into Obsidian).
+- [ ] **Phase 6: Add-on 5 — Autonomous Web & Deep Research ("The Eyes"):**
+  - [ ] Headless browser / Crawl4AI markdown extraction.
+  - [ ] Document reader agent and web search integration.
+- [ ] **Phase 7: Add-on 6 — Voice & Barge-in Gateway ("The Senses" - Final Capstone):**
+  - [ ] Full-duplex WebSocket server (`ws://localhost:8765/voice`).
+  - [ ] Silero VAD CoreML acceleration with sub-50ms barge-in interrupt tokens.
+  - [ ] Kokoro TTS streaming engine with RealtimeTTS clause chunking.
+  - [ ] openWakeWord hands-free activation ("Hey Lumen" / "Hey Jarvis").
+  *(Architecture & component specs fully preserved in `docs/VOICE_GATEWAY_ARCHITECTURE.md`)*
