@@ -100,7 +100,7 @@
 
 ---
 
-### Phase 3: Add-on 2 — Unbroken Bi-Temporal Memory Engine & Provenance (COMPLETED)
+### Phase 3: Add-on 2 — Unbroken Bi-Temporal Memory Engine & Provenance (COMPLETED & HARDENED)
 - **Problem Solved:** Standard AI agent systems suffer from destructive amnesia or conflicting context windows when user constraints change. They lack causal lineage (asking *"Why did you do that?"* causes hallucinations).
 - **Architectural Solution:** Bi-Temporal Data Architecture + Directed Acyclic Graph (DAG) Provenance.
   1. **Dual-Clock Validity:**
@@ -109,16 +109,21 @@
   2. **Automated ACID Superseding:**
      - Hard `DELETE` statements are prohibited in Lumen.
      - When a new assertion arrives for an existing `(entity, attribute)` with active state (`valid_to IS NULL`), an ACID transaction automatically retires the prior assertion by updating `valid_to = new_fact.valid_from`.
-  3. **The Trace API (`/api/v1/trace/{fact_id}`):**
+  3. **Provenance Reaffirmation (Deduplication Guard):**
+     - If an identical assertion is stated again in conversation, instead of creating duplicate versions, the new source event ID is merged into the existing fact's `source_event_ids` array (`SELECT DISTINCT unnest(...)`).
+  4. **Domain Classification:**
+     - Conversational preferences are categorized by domain (e.g. `database`, `editor`, `programming_language`, `ui_theme`) so modifying your editor preference never overwrites your database preference.
+  5. **The Trace API (`/api/v1/trace/{fact_id}`):**
      - Traverses from derived L1 Canonical Fact back to raw L0 User Utterances via `source_event_ids`.
+     - Supports short prefix UUIDs (e.g. `/trace 8496964f`).
      - Returns historical evolution lineage (e.g. Version 1 $\to$ Version 2 $\to$ Version 3), revealing exactly when and why facts were modified.
-  4. **Time-Travel Querying (`/api/v1/memories/time-travel`):**
+  6. **Time-Travel Querying (`/api/v1/memories/time-travel`):**
      - Reconstructs the agent's exact state of mind as of any historical timestamp using bi-temporal range filtering:
        $$\text{valid\_from} \le T_{\text{as\_of}} \quad \text{AND} \quad (\text{valid\_to IS NULL} \lor \text{valid\_to} > T_{\text{as\_of}})$$
-  5. **Normalized Vector Tokenization:**
+  7. **Normalized Vector Tokenization:**
      - Upgraded `DeterministicHashEmbeddingAdapter` with regex word boundary tokenization (`re.findall(r"\w+", text)`), eliminating punctuation-attachment similarity drop-offs and achieving high cosine fidelity ($>0.26$).
 - **Verification & Test Results:**
-  - `packages/memory-engine/tests/test_memory_api.py`: 3 passing integration tests in **0.33s**.
+  - `packages/memory-engine/tests/test_memory_api.py`: 3 passing integration tests in **0.37s**.
     - `test_bi_temporal_superseding_and_time_travel`: Verified automatic `valid_to` closure, provenance trace DAG, and historical reconstruction where querying $T_{\text{past}}$ returns superseded facts and querying $T_{\text{present}}$ returns active facts.
   - Interactive REPL command `/trace <fact_id>` verified live against PostgreSQL container.
 
