@@ -18,6 +18,7 @@ from .models import (
     ProposalStatus,
     ProposalTier,
     OutboxRecord,
+    HybridSearchResult,
 )
 
 
@@ -170,6 +171,35 @@ class StoragePort(ABC):
         predicates: list[str] | None = None,
     ) -> list[dict]:
         """Detect functional predicates with multiple active conflicting target values for a single subject."""
+        pass
+
+    @abstractmethod
+    async def search_lexical_facts(
+        self,
+        query: str,
+        limit: int = 20,
+    ) -> list[CanonicalFact]:
+        """Perform full-text BM25 / tsvector and trigram search against active facts."""
+        pass
+
+    @abstractmethod
+    async def search_graph_facts(
+        self,
+        query: str,
+        limit: int = 20,
+    ) -> list[CanonicalFact]:
+        """Retrieve facts associated with entities found via knowledge graph matching and 1-hop traversal."""
+        pass
+
+    @abstractmethod
+    async def hybrid_search(
+        self,
+        query: str,
+        query_embedding: Sequence[float],
+        limit: int = 5,
+        k_rrf: int = 60,
+    ) -> list[HybridSearchResult]:
+        """Unified hybrid search merging lexical, dense vector, and graph channels with Reciprocal Rank Fusion."""
         pass
 
 

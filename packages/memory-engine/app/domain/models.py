@@ -189,4 +189,22 @@ class ConsolidationReport:
     details: dict = field(default_factory=dict)
 
 
+@dataclass
+class HybridSearchResult:
+    """Consolidated search result merged across lexical, dense, and graph channels via RRF."""
+    id: uuid.UUID
+    entity: str
+    attribute: str
+    value: Any
+    memory_type: MemoryType
+    epistemic_type: EpistemicType
+    rrf_score: float
+    channel_ranks: dict[str, int]        # e.g. {"lexical": 1, "dense": 3, "graph": 2}
+    confidence: float = 1.0
+    source_event_ids: list[uuid.UUID] = field(default_factory=list)
+    valid_from: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    valid_to: datetime | None = None
+
+
+
 

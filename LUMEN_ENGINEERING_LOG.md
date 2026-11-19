@@ -15,7 +15,7 @@
 | **Phase 2** | True Concurrency ("The Spine") | **COMPLETE** | Native Async Supervisor, Semaphore Gate (k=4), Non-blocking stdin threadpool, Postgres Checkpointing | Pytest suite (1.50s, 4 tests passed), Live REPL verified |
 | **Phase 3** | Unbroken Bi-Temporal Memory | **COMPLETE** | Dual-clock time (Valid vs Transaction), Trace Provenance DAG, Automated Fact Superseding, Time-Travel Queries | Pytest suite (0.33s, 3 tests passed), Live REST & REPL `/trace` verified |
 | **Phase 4** | Safe Computer Control ("The Hands") | **COMPLETE** | Multi-Layered Defense (Pipeline Splitter, Python AST, Credential Sentinel, Env Scrubbing) | Automated security tests (0.53s, 15 tests passed), Live REPL `/exec` verified |
-| **Phase 5 (Current)** | Knowledge Graph & Review Queue | **IN PROGRESS (Steps 1, 2, 3 & 4 COMPLETE)** | 3-Table Schema (entities, triples, predicates), Two-Tier Entity Resolver, Review Queue Contradiction Gating, Transactional Outbox Pattern, Overnight Consolidation Daemon | Automated test suite (46/46 tests passed), Live REPL `/consolidate`, `/digest`, `/outbox`, `/proposals`, `/graph` verified |
+| **Phase 5** | Knowledge Graph, Review Queue & Hybrid Retrieval | **COMPLETE** | 3-Table Schema (entities, triples, predicates), Two-Tier Entity Resolver, Review Queue Contradiction Gating, Transactional Outbox Pattern, Overnight Consolidation Daemon, Unified Hybrid RRF Search | Automated test suite (49/49 tests passed), Live REPL `/search`, `/consolidate`, `/digest`, `/outbox`, `/proposals`, `/graph` verified |
 | **Phase 6** | Autonomous Web & Deep Research ("The Eyes") | QUEUED | Headless Browser Automation, Markdown Extraction, Document Ingestion | Scraping & DOM traversal integration tests |
 | **Phase 7** | Voice & Barge-in Gateway ("The Senses") | **SCHEDULED FOR CAPSTONE** | Full-duplex WebSocket, VAD interrupt tokens, Silero/Kokoro streaming (Architecture locked in `docs/VOICE_GATEWAY_ARCHITECTURE.md`) | Audio roundtrip latency tests |
 
@@ -34,6 +34,7 @@
 | **ADR-007** | Knowledge Graph Integrity & Review Queue | Event-Sourced 3-Table Schema + Tiered Review Queue | Unvalidated triple insertion, Unbounded graph growth | Solves the entity resolution trap (merging aliases like 'psql' -> 'PostgreSQL') and prevents epistemic corruption by gating contradictory belief shifts through a human-in-the-loop review queue. |
 | **ADR-008** | Transactional Outbox Pattern for Obsidian Sync | PostgreSQL `memory_outbox` + `pg_notify` + Async Worker | Inline direct disk writes | Eliminates dual-write anti-patterns; removes file I/O latency from conversation turns; guarantees eventual consistency between PostgreSQL memory and Obsidian notes with exponential backoff retries. |
 | **ADR-009** | Overnight Consolidation Patrol & Morning Intelligence Briefing | Autonomous Nightly Patrol + Gated Review Queue + Markdown Digest | Unchecked automated edge mutation, Destructive auto-deduping | Solves epistemic drift: AI never unilaterally resolves contradictions or merges aliases. All findings are staged as Tier B review proposals with explicit explanations, and synthesized into `vault/digests/digest_YYYY-MM-DD.md`. |
+| **ADR-010** | Unified Hybrid Retrieval with Reciprocal Rank Fusion (RRF) | Multi-Channel RRF ($k=60$) over Lexical (BM25), Dense Vector (HNSW), and Graph Traversal | Score-normalization (Min-Max / Softmax), Isolated retrieval calls | Eliminates fragmented search logic; avoids uncalibrated score scale collapse; parameter-free rank fusion guarantees robust ordering across disparate retrieval channels. |
 
 ---
 
@@ -222,20 +223,38 @@
      - **REPL Controls:**
        - `/consolidate`: Triggers on-demand consolidation patrol and updates Obsidian digest.
        - `/digest`: Displays current day's briefing in terminal.
-  5. **Recursive Graph Traversal ($O(V+E)$):**
+  5. **Step 5: The Unified Hybrid Retrieval Service (`search()`) with Reciprocal Rank Fusion:**
+     - **Multi-Channel Indexing (`infra/docker/postgres/migrations/004_hybrid_search_indices.sql`):**
+       - GIN `to_tsvector('english', ...)` for English lexical search on `facts` and `entities`.
+       - GIN `pg_trgm` trigram indices on `facts` and `entities` for fuzzy identifier and code matching.
+       - HNSW vector index (`vector_cosine_ops`) for dense embeddings on `facts` and `entities`.
+     - **Tri-Stream Concurrent Retrieval (`app/adapters/storage/postgres_adapter.py`):**
+       - *Channel 1 (Dense Vector):* HNSW cosine distance search (`<=>`) on 1536-dimensional query embeddings.
+       - *Channel 2 (Lexical BM25):* `to_tsvector @@ plainto_tsquery` combined with `ts_rank_cd` and trigram similarity ranking.
+       - *Channel 3 (Associative Graph):* Entity resolution on query $\to$ multi-hop active triple traversal $\to$ retrieves facts tied to connected entity nodes.
+     - **Reciprocal Rank Fusion (RRF) Formula:**
+       $$\text{RRF\_Score}(d) = \sum_{m \in \{\text{dense}, \text{lexical}, \text{graph}\}} \frac{w_m}{k + r_m(d)}$$
+       with smoothing constant $k = 60$ and channel weights $w_{\text{dense}} = 1.0, w_{\text{lexical}} = 1.0, w_{\text{graph}} = 1.2$.
+     - **Single Canonical Interface:**
+       - REST: `POST /api/v1/search/hybrid` returning ranked items with `rrf_score` and exact `channel_ranks`.
+       - SDK: `await memory.search(query, limit=5, mode="hybrid")`.
+       - Turn-Level Grounding: `session.process_turn()` automatically injects hybrid RRF context into system prompt.
+       - REPL: `/search <query>` displays fused rankings and per-channel breakdown.
+  6. **Recursive Graph Traversal ($O(V+E)$):**
      - Sub-millisecond multi-hop graph walking in PostgreSQL using Recursive Common Table Expressions (CTEs) with cycle prevention (`NOT (t.id = ANY(gw.path))`) and depth bounding.
-  6. **Runtime REPL & API Integration:**
-     - REPL commands: `/consolidate`, `/digest`, `/outbox`, `/proposals`, `/approve-proposal <id>`, `/reject-proposal <id>`, `/graph [entity]`.
-     - Endpoints: `POST /api/v1/entities`, `POST /api/v1/graph/propose`, `GET /api/v1/graph/review-queue`, `POST /api/v1/graph/review-queue/{id}/resolve`, `GET /api/v1/graph/traverse/{entity}`, `GET /api/v1/outbox/pending`, `POST /api/v1/outbox/{id}/ack`, `POST /api/v1/outbox/{id}/fail`, `GET /api/v1/outbox/stats`, `POST /api/v1/graph/consolidate`, `GET /api/v1/graph/orphans`.
+  7. **Runtime REPL & API Integration:**
+     - REPL commands: `/search <query>`, `/consolidate`, `/digest`, `/outbox`, `/proposals`, `/approve-proposal <id>`, `/reject-proposal <id>`, `/graph [entity]`.
+     - Endpoints: `POST /api/v1/search/hybrid`, `POST /api/v1/entities`, `POST /api/v1/graph/propose`, `GET /api/v1/graph/review-queue`, `POST /api/v1/graph/review-queue/{id}/resolve`, `GET /api/v1/graph/traverse/{entity}`, `GET /api/v1/outbox/pending`, `POST /api/v1/outbox/{id}/ack`, `POST /api/v1/outbox/{id}/fail`, `GET /api/v1/outbox/stats`, `POST /api/v1/graph/consolidate`, `GET /api/v1/graph/orphans`.
 - **Verification & Test Results:**
+  - `packages/memory-engine/tests/test_hybrid_retrieval.py`: 3 passing integration tests in **0.39s**.
   - `packages/memory-engine/tests/test_consolidation.py`: 3 passing integration tests in **0.30s**.
   - `packages/memory-engine/tests/test_transactional_outbox.py`: 3 passing integration tests in **0.41s**.
   - `packages/memory-engine/tests/test_knowledge_graph.py`: 4 passing integration tests in **0.43s**.
   - `packages/memory-engine/tests/test_memory_api.py`: 3 passing integration tests in **0.49s**.
   - `apps/lumen-core/tests/test_consolidation_daemon.py`: 3 passing unit & live integration tests in **0.11s**.
   - `apps/lumen-core/tests/test_outbox_worker.py`: 4 passing unit & live integration tests in **0.17s**.
-  - `apps/lumen-core/tests/`: 33 passing unit & session tests in **4.79s**.
-  - Full project monorepo test suite: **46/46 automated tests green (100%)**.
+  - `apps/lumen-core/tests/`: 33 passing unit & session tests in **4.88s**.
+  - Full project monorepo test suite: **49/49 automated tests green (100%)**.
 
 ---
 
@@ -249,12 +268,12 @@
   - [x] AST Gatekeeper parsing destructive commands (`rm -rf`, `DROP TABLE`).
   - [x] Two-Man Rule approval gates (`AWAITING_APPROVAL`, `/approve`, `/reject`).
   - [x] Sandboxed execution runner with timeouts, cancellation, and stdout/stderr capture.
-- [ ] **Phase 5: Add-on 4 — Knowledge Graph & Overnight Consolidation (The Super-Brain):**
+- [x] **Phase 5: Add-on 4 — Knowledge Graph & Overnight Consolidation (The Super-Brain) — COMPLETE:**
   - [x] **Step 1:** Normalized 3-table relational schema (`entities`, `triples`, `predicates`) with bi-temporal validity.
   - [x] **Step 2:** Two-Tier Entity Resolver & Review Queue Staging Buffer (preventing messy node duplicates and epistemic drift).
   - [x] **Step 3:** Transactional Outbox Pattern for decoupled Obsidian Vault Synchronization (`memory_outbox` + `pg_notify`).
   - [x] **Step 4:** Overnight Consolidation Daemon (contradiction patrol, semantic orphan clustering, morning intelligence digest in `vault/digests/`).
-  - [ ] **Step 5:** Unified Hybrid Retrieval Service (`search()`) with Reciprocal Rank Fusion (BM25 + pgvector + graph).
+  - [x] **Step 5:** Unified Hybrid Retrieval Service (`search()`) with Reciprocal Rank Fusion (BM25 + pgvector + graph).
 - [ ] **Phase 6: Add-on 5 — Autonomous Web & Deep Research ("The Eyes"):**
   - [ ] Headless browser / Crawl4AI markdown extraction.
   - [ ] Document reader agent and web search integration.

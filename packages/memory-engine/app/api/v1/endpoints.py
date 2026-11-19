@@ -49,6 +49,11 @@ from app.schemas.consolidation import (
     ConsolidationReportResponse,
     OrphanEntityItem,
 )
+from app.schemas.search import (
+    HybridSearchRequest,
+    HybridSearchResponse,
+    HybridSearchItem,
+)
 
 router = APIRouter(prefix="/api/v1")
 
@@ -564,6 +569,57 @@ async def list_similarity_clusters(
     """List entity pairs whose vector embeddings have high cosine similarity."""
     pairs = await storage.find_high_similarity_entity_pairs(threshold=threshold, limit=limit)
     return {"clusters": pairs, "count": len(pairs)}
+
+
+# ==========================================
+# Unified Hybrid Retrieval (RRF) Endpoints
+# ==========================================
+
+@router.post("/search/hybrid", response_model=HybridSearchResponse)
+@router.post("/search", response_model=HybridSearchResponse)
+async def unified_hybrid_search(
+    req: HybridSearchRequest,
+    storage: Annotated[StoragePort, Depends(get_storage)],
+    embedding: Annotated[EmbeddingPort, Depends(get_embedding)],
+):
+    """
+    Unified hybrid retrieval combining lexical BM25, dense vector pgvector HNSW,
+    and Knowledge Graph associative traversal using Reciprocal Rank Fusion (RRF).
+    """
+    # 1. Generate dense query embedding
+    query_vec = await embedding.generate_embedding(req.query)
+
+    # 2. Execute RRF Hybrid Search
+    results = await storage.hybrid_search(
+        query=req.query,
+        query_embedding=query_vec,
+        limit=req.limit,
+        k_rrf=req.k_rrf,
+    )
+
+    return HybridSearchResponse(
+        query=req.query,
+        mode=req.mode,
+        total_results=len(results),
+        results=[
+            HybridSearchItem(
+                id=r.id,
+                entity=r.entity,
+                attribute=r.attribute,
+                value=r.value,
+                memory_type=r.memory_type.value if hasattr(r.memory_type, "value") else str(r.memory_type),
+                epistemic_type=r.epistemic_type.value if hasattr(r.epistemic_type, "value") else str(r.epistemic_type),
+                rrf_score=r.rrf_score,
+                channel_ranks=r.channel_ranks,
+                confidence=r.confidence,
+                valid_from=r.valid_from,
+                valid_to=r.valid_to,
+                source_event_ids=r.source_event_ids,
+            )
+            for r in results
+        ],
+    )
+
 
 
 

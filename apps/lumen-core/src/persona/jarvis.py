@@ -31,11 +31,14 @@ def format_context_with_memories(
             entity = m.get("entity", "")
             attr = m.get("attribute", "")
             val = m.get("value", "")
-            sim = m.get("similarity", 0.0)
+            sim = m.get("rrf_score") or m.get("similarity", 0.0)
             m_type = m.get("memory_type", "fact")
             m_id = str(m.get("id", ""))
             id_tag = f", id: {m_id}" if m_id else ""
-            memory_lines.append(f"• [{m_type.upper()}] {entity} {attr}: {val} (relevance: {int(sim*100)}%{id_tag})")
+            ranks = m.get("channel_ranks")
+            rank_tag = f", ranks: {ranks}" if ranks else ""
+            score_str = f"{sim:.4f}" if isinstance(sim, float) and sim < 1.0 else f"{int(sim*100)}%"
+            memory_lines.append(f"• [{m_type.upper()}] {entity} {attr}: {val} (score: {score_str}{rank_tag}{id_tag})")
 
         memories_block = "\n".join(memory_lines)
         system_content += f"\n\nACTIVE LONG-TERM MEMORIES (Retrieved Context):\n{memories_block}\nUse these memories as foundational truth."

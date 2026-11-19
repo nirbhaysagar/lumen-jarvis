@@ -3,6 +3,7 @@ PostgreSQL + pgvector Storage Adapter.
 Implements the StoragePort interface using native asyncpg connection pooling.
 """
 from __future__ import annotations
+import asyncio
 import json
 import uuid
 from typing import Sequence
@@ -21,6 +22,7 @@ from app.domain.models import (
     ProposalStatus,
     ProposalTier,
     OutboxRecord,
+    HybridSearchResult,
 )
 from app.domain.ports import StoragePort
 
@@ -1089,6 +1091,205 @@ class PostgresStorageAdapter(StoragePort):
                 }
                 for r in rows
             ]
+
+    async def search_lexical_facts(
+        self,
+        query: str,
+        limit: int = 20,
+    ) -> list[CanonicalFact]:
+        """Perform full-text BM25 / tsvector and trigram search against active facts."""
+        if not self._pool:
+            raise RuntimeError("Database pool not connected.")
+
+        clean_query = query.strip()
+        if not clean_query:
+            return []
+
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, entity, attribute, value, memory_type, epistemic_type, confidence,
+                       source_event_ids, valid_from, valid_to,
+                       (
+                           ts_rank_cd(
+                               to_tsvector('english', entity || ' ' || attribute || ' ' || COALESCE(value::text, '')),
+                               plainto_tsquery('english', $1)
+                           ) * 2.0 +
+                           similarity(entity || ' ' || attribute || ' ' || COALESCE(value::text, ''), $1)
+                       ) as lexical_score
+                FROM facts
+                WHERE valid_to IS NULL
+                  AND (
+                      to_tsvector('english', entity || ' ' || attribute || ' ' || COALESCE(value::text, '')) @@ plainto_tsquery('english', $1)
+                      OR (entity || ' ' || attribute || ' ' || COALESCE(value::text, '')) % $1
+                      OR LOWER(entity) LIKE '%' || LOWER($1) || '%'
+                      OR LOWER(attribute) LIKE '%' || LOWER($1) || '%'
+                      OR LOWER(COALESCE(value::text, '')) LIKE '%' || LOWER($1) || '%'
+                  )
+                ORDER BY lexical_score DESC
+                LIMIT $2;
+                """,
+                clean_query,
+                limit,
+            )
+            return [
+                CanonicalFact(
+                    id=r["id"],
+                    entity=r["entity"],
+                    attribute=r["attribute"],
+                    value=json.loads(r["value"]) if isinstance(r["value"], str) else (r["value"] or {}),
+                    memory_type=MemoryType(r["memory_type"]),
+                    epistemic_type=EpistemicType(r["epistemic_type"]),
+                    confidence=r["confidence"],
+                    source_event_ids=list(r["source_event_ids"]) if r["source_event_ids"] else [],
+                    valid_from=r["valid_from"],
+                    valid_to=r["valid_to"],
+                )
+                for r in rows
+            ]
+
+    async def search_graph_facts(
+        self,
+        query: str,
+        limit: int = 20,
+    ) -> list[CanonicalFact]:
+        """Retrieve facts associated with entities found via knowledge graph matching and 1-hop traversal."""
+        if not self._pool:
+            raise RuntimeError("Database pool not connected.")
+
+        clean_query = query.strip()
+        if not clean_query:
+            return []
+
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                WITH matched_entities AS (
+                    SELECT id, canonical_name
+                    FROM entities
+                    WHERE LOWER(canonical_name) = LOWER($1)
+                       OR $1 = ANY(aliases)
+                       OR to_tsvector('english', canonical_name || ' ' || COALESCE(description, '')) @@ plainto_tsquery('english', $1)
+                       OR canonical_name % $1
+                    LIMIT 5
+                ),
+                connected_entity_names AS (
+                    SELECT me.canonical_name FROM matched_entities me
+                    UNION
+                    SELECT e_sub.canonical_name
+                    FROM triples t
+                    JOIN matched_entities me ON t.object_id = me.id
+                    JOIN entities e_sub ON t.subject_id = e_sub.id
+                    WHERE t.valid_to IS NULL
+                    UNION
+                    SELECT e_obj.canonical_name
+                    FROM triples t
+                    JOIN matched_entities me ON t.subject_id = me.id
+                    JOIN entities e_obj ON t.object_id = e_obj.id
+                    WHERE t.valid_to IS NULL
+                )
+                SELECT f.id, f.entity, f.attribute, f.value, f.memory_type, f.epistemic_type, f.confidence,
+                       f.source_event_ids, f.valid_from, f.valid_to
+                FROM facts f
+                JOIN connected_entity_names cen ON LOWER(f.entity) = LOWER(cen.canonical_name)
+                WHERE f.valid_to IS NULL
+                LIMIT $2;
+                """,
+                clean_query,
+                limit,
+            )
+            return [
+                CanonicalFact(
+                    id=r["id"],
+                    entity=r["entity"],
+                    attribute=r["attribute"],
+                    value=json.loads(r["value"]) if isinstance(r["value"], str) else (r["value"] or {}),
+                    memory_type=MemoryType(r["memory_type"]),
+                    epistemic_type=EpistemicType(r["epistemic_type"]),
+                    confidence=r["confidence"],
+                    source_event_ids=list(r["source_event_ids"]) if r["source_event_ids"] else [],
+                    valid_from=r["valid_from"],
+                    valid_to=r["valid_to"],
+                )
+                for r in rows
+            ]
+
+    async def hybrid_search(
+        self,
+        query: str,
+        query_embedding: Sequence[float],
+        limit: int = 5,
+        k_rrf: int = 60,
+    ) -> list[HybridSearchResult]:
+        """
+        Unified hybrid retrieval using Reciprocal Rank Fusion (RRF).
+        Combines 3 heterogeneous retrieval streams:
+        1. Dense semantic vector similarity (HNSW pgvector).
+        2. Lexical keyword / BM25 matching (tsvector + pg_trgm).
+        3. Knowledge graph 1-hop associative traversal.
+        """
+        # 1. Fetch from the 3 channels concurrently
+        dense_results, lexical_results, graph_results = await asyncio.gather(
+            self.search_facts(query_embedding=query_embedding, limit=limit * 3, threshold=0.01),
+            self.search_lexical_facts(query=query, limit=limit * 3),
+            self.search_graph_facts(query=query, limit=limit * 3),
+        )
+
+        # 2. Reciprocal Rank Fusion Computation
+        # Channel weights (graph given slight boost for associative depth)
+        weights = {"dense": 1.0, "lexical": 1.0, "graph": 1.2}
+        rrf_scores: dict[uuid.UUID, float] = {}
+        channel_ranks: dict[uuid.UUID, dict[str, int]] = {}
+        facts_map: dict[uuid.UUID, Any] = {}
+
+        # Dense channel
+        for rank_idx, res in enumerate(dense_results, start=1):
+            f_id = res.fact.id
+            facts_map[f_id] = res.fact
+            channel_ranks.setdefault(f_id, {})["dense"] = rank_idx
+            rrf_scores[f_id] = rrf_scores.get(f_id, 0.0) + (weights["dense"] / (k_rrf + rank_idx))
+
+        # Lexical channel
+        for rank_idx, fact in enumerate(lexical_results, start=1):
+            f_id = fact.id
+            facts_map[f_id] = fact
+            channel_ranks.setdefault(f_id, {})["lexical"] = rank_idx
+            rrf_scores[f_id] = rrf_scores.get(f_id, 0.0) + (weights["lexical"] / (k_rrf + rank_idx))
+
+        # Graph channel
+        for rank_idx, fact in enumerate(graph_results, start=1):
+            f_id = fact.id
+            facts_map[f_id] = fact
+            channel_ranks.setdefault(f_id, {})["graph"] = rank_idx
+            rrf_scores[f_id] = rrf_scores.get(f_id, 0.0) + (weights["graph"] / (k_rrf + rank_idx))
+
+        # 3. Sort by descending RRF score
+        sorted_ids = sorted(rrf_scores.keys(), key=lambda fid: rrf_scores[fid], reverse=True)
+
+        # 4. Construct HybridSearchResult objects
+        top_ids = sorted_ids[:limit]
+        final_results = []
+        for fid in top_ids:
+            fact = facts_map[fid]
+            final_results.append(
+                HybridSearchResult(
+                    id=fact.id,
+                    entity=fact.entity,
+                    attribute=fact.attribute,
+                    value=fact.value,
+                    memory_type=fact.memory_type,
+                    epistemic_type=fact.epistemic_type,
+                    rrf_score=round(rrf_scores[fid], 6),
+                    channel_ranks=channel_ranks[fid],
+                    confidence=fact.confidence,
+                    source_event_ids=fact.source_event_ids,
+                    valid_from=fact.valid_from,
+                    valid_to=fact.valid_to,
+                )
+            )
+
+        return final_results
+
 
 
 

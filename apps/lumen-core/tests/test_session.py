@@ -88,5 +88,12 @@ async def test_session_proposals_and_graph_commands():
     digest_reply = "".join(digest_tokens)
     assert "Intelligence Briefing" in digest_reply
 
+    # 6. Check /search command (Hybrid RRF)
+    search_tokens = []
+    async for token in session.process_turn("/search postgres"):
+        search_tokens.append(token)
+    search_reply = "".join(search_tokens)
+    assert ("Ranked Hybrid Search Results" in search_reply) or ("No relevant memories found" in search_reply)
+
     await memory_client.close()
 

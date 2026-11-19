@@ -66,6 +66,40 @@ class MemoryServiceClient:
             self._record_failure()
             return []
 
+    async def search(
+        self,
+        query: str,
+        limit: int = 5,
+        mode: str = "hybrid",
+        k_rrf: int = 60,
+        trace_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Unified Hybrid Retrieval Service.
+        Merges lexical BM25, dense vector pgvector, and Knowledge Graph traversal
+        using Reciprocal Rank Fusion (RRF).
+        """
+        if self.circuit_open:
+            return []
+
+        headers = {"X-Trace-ID": trace_id} if trace_id else {}
+        try:
+            resp = await self._client.post(
+                f"{self.base_url}/api/v1/search/hybrid",
+                headers=headers,
+                json={"query": query, "limit": limit, "mode": mode, "k_rrf": k_rrf},
+            )
+            if resp.status_code == 200:
+                self._record_success()
+                return resp.json().get("results", [])
+            else:
+                self._record_failure()
+                return []
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError) as e:
+            logger.debug(f"Memory service connection error in hybrid search: {e}")
+            self._record_failure()
+            return []
+
     async def save_event(
         self,
         source: str,

@@ -216,6 +216,30 @@ class ConversationSession:
                 yield f"📄 Morning Intelligence Briefing Generated ({digest_file.name}):\n\n{content}"
             return
 
+        if trimmed.startswith("/search "):
+            query = trimmed.split(" ", 1)[1].strip()
+            yield f"🔍 Executing Unified Hybrid Search (BM25 + pgvector + Graph RRF) for: '{query}'...\n\n"
+            results = await self.memory.search(query=query, limit=5, mode="hybrid")
+            if not results:
+                yield "No relevant memories found across lexical, vector, or graph channels."
+                return
+
+            lines = ["Ranked Hybrid Search Results (Reciprocal Rank Fusion):"]
+            for idx, r in enumerate(results, 1):
+                entity = r.get("entity", "")
+                attr = r.get("attribute", "")
+                val = r.get("value", "")
+                score = r.get("rrf_score", 0.0)
+                ranks = r.get("channel_ranks", {})
+                ranks_str = ", ".join([f"{k}: #{v}" for k, v in ranks.items()])
+                lines.append(
+                    f"{idx}. [{r.get('memory_type', 'fact').upper()}] {entity} ❯ {attr}: {val}\n"
+                    f"   • RRF Score: {score:.6f} ({ranks_str})\n"
+                    f"   • Fact ID: `{r.get('id')}`"
+                )
+            yield "\n".join(lines)
+            return
+
         if trimmed == "/approvals":
             pending = self.approvals.list_pending()
             if not pending:
@@ -393,11 +417,10 @@ class ConversationSession:
                 announcements.append(f"⚡ [System Notice] Background task '{n.name}' ({n.task_id}) reached state: {n.state.value}.")
             yield "\n".join(announcements) + "\n\n"
 
-        # 2. Parallel Memory Retrieval (Tuned for pgvector HNSW search)
-        memories = await self.memory.search_memories(
+        # 2. Unified Hybrid Memory Retrieval (BM25 + pgvector + Graph RRF)
+        memories = await self.memory.search(
             query=user_text,
             limit=4,
-            threshold=0.01,
             trace_id=trace_id,
         )
 
