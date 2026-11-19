@@ -52,7 +52,7 @@ class StoragePort(ABC):
         pass
 
     @abstractmethod
-    async def get_fact_trace(self, fact_id: uuid.UUID) -> dict | None:
+    async def get_fact_trace(self, fact_id: str | uuid.UUID) -> dict | None:
         """Retrieve the exact provenance chain (source events and historical lineage) for a given fact."""
         pass
 

@@ -191,11 +191,12 @@ async def time_travel_search(
 
 @router.get("/trace/{fact_id}", response_model=TraceResponse)
 async def get_fact_trace(
-    fact_id: uuid.UUID,
+    fact_id: str,
     storage: Annotated[StoragePort, Depends(get_storage)],
 ):
     """
-    Trace API: Returns the fact and the exact raw source events that generated it.
+    Trace API: Returns the fact, its full provenance DAG back to source events,
+    and historical version lineage (supports both exact UUID and short prefix).
     """
     trace_data = await storage.get_fact_trace(fact_id)
     if not trace_data:

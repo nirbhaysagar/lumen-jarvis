@@ -64,8 +64,9 @@ async def test_event_idempotency_and_trace_pipeline(client: AsyncClient):
     assert data2["idempotent_hit"] is True
 
     # Step 3: Create Derived Canonical Fact (L1) with Provenance link
+    test_entity = f"project_lumen_{uuid.uuid4().hex[:6]}"
     fact_payload = {
-        "entity": "project_lumen",
+        "entity": test_entity,
         "attribute": "chosen_database",
         "value": "PostgreSQL with pgvector",
         "memory_type": "decision",

@@ -124,7 +124,39 @@ class PostgresStorageAdapter(StoragePort):
 
         async with self._pool.acquire() as conn:
             async with conn.transaction():
-                # 1. Automated Bi-Temporal Superseding:
+                # 1. Deduplication Guard: If an active fact with identical value already exists, return it
+                existing_row = await conn.fetchrow(
+                    """
+                    SELECT id, value FROM facts
+                    WHERE entity = $1 AND attribute = $2 AND valid_to IS NULL;
+                    """,
+                    fact.entity,
+                    fact.attribute,
+                )
+                if existing_row:
+                    ex_val = existing_row["value"]
+                    if isinstance(ex_val, str):
+                        try:
+                            ex_val = json.loads(ex_val)
+                        except Exception:
+                            pass
+                    if ex_val == fact.value:
+                        # Provenance Reaffirmation: Merge any new source_event_ids into existing fact DAG
+                        if fact.source_event_ids:
+                            await conn.execute(
+                                """
+                                UPDATE facts
+                                SET source_event_ids = ARRAY(
+                                    SELECT DISTINCT unnest(source_event_ids || $1::uuid[])
+                                )
+                                WHERE id = $2;
+                                """,
+                                fact.source_event_ids,
+                                existing_row["id"],
+                            )
+                        return existing_row["id"]
+
+                # 2. Automated Bi-Temporal Superseding:
                 # If this fact is active (valid_to is None), retire previous active assertions for this entity/attribute.
                 if fact.valid_to is None:
                     await conn.execute(
@@ -142,7 +174,7 @@ class PostgresStorageAdapter(StoragePort):
                         fact.id,
                     )
 
-                # 2. Insert the new canonical fact
+                # 3. Insert the new canonical fact
                 row = await conn.fetchrow(
                     """
                     INSERT INTO facts (
@@ -278,13 +310,25 @@ class PostgresStorageAdapter(StoragePort):
                 ))
             return results
 
-    async def get_fact_trace(self, fact_id: uuid.UUID) -> dict | None:
+    async def get_fact_trace(self, fact_id: str | uuid.UUID) -> dict | None:
         """Retrieve fact, its full provenance trace back to source events, and historical evolution lineage."""
         if not self._pool:
             raise RuntimeError("Database pool not connected.")
 
+        fact_id_str = str(fact_id).strip()
+
         async with self._pool.acquire() as conn:
-            fact_row = await conn.fetchrow("SELECT * FROM facts WHERE id = $1", fact_id)
+            # Flexible lookup: exact UUID or prefix matching
+            try:
+                fact_uuid = uuid.UUID(fact_id_str)
+                fact_row = await conn.fetchrow("SELECT * FROM facts WHERE id = $1", fact_uuid)
+            except ValueError:
+                # Prefix lookup
+                fact_row = await conn.fetchrow(
+                    "SELECT * FROM facts WHERE id::text LIKE $1 ORDER BY valid_from DESC LIMIT 1",
+                    f"{fact_id_str}%",
+                )
+
             if not fact_row:
                 return None
 

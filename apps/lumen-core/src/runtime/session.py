@@ -12,6 +12,22 @@ from ..persona.jarvis import format_context_with_memories
 from ..router.model_router import ModelRouter
 
 
+def classify_preference(text: str) -> tuple[str, str]:
+    """Categorizes user decisions into domain-specific entities to preserve orthogonal bi-temporal lineages."""
+    lowered = text.lower()
+    if any(k in lowered for k in ["database", "db", "postgres", "postgresql", "mysql", "mongodb", "sqlite", "redis"]):
+        return "user_preference", "database"
+    if any(k in lowered for k in ["editor", "ide", "vscode", "vs code", "cursor", "vim", "neovim", "sublime"]):
+        return "user_preference", "editor"
+    if any(k in lowered for k in ["language", "python", "typescript", "javascript", "rust", "golang", "go", "c++"]):
+        return "user_preference", "programming_language"
+    if any(k in lowered for k in ["framework", "fastapi", "react", "nextjs", "django", "vue"]):
+        return "user_preference", "framework"
+    if any(k in lowered for k in ["theme", "dark mode", "light mode", "color", "font", "ui"]):
+        return "user_preference", "ui_theme"
+    return "user_preference", "general"
+
+
 class ConversationSession:
     def __init__(
         self,
@@ -170,9 +186,10 @@ class ConversationSession:
         if event_res and any(k in user_text.lower() for k in ["i prefer", "we decided", "use ", "always ", "never "]):
             event_id = event_res.get("id")
             if event_id:
+                entity, attribute = classify_preference(user_text)
                 await self.memory.save_fact(
-                    entity="user_decision",
-                    attribute="preference",
+                    entity=entity,
+                    attribute=attribute,
                     value=user_text,
                     source_event_ids=[event_id],
                     memory_type="decision",
