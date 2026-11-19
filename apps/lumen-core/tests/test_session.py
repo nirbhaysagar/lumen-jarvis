@@ -43,3 +43,27 @@ async def test_circuit_breaker_offline_fallback():
     assert "Sir" in full_response
 
     await unreachable_client.close()
+
+
+@pytest.mark.asyncio
+async def test_session_proposals_and_graph_commands():
+    """Verify session /proposals and /graph traversal commands."""
+    memory_client = MemoryServiceClient(base_url="http://localhost:8000")
+    session = ConversationSession(memory_client=memory_client)
+
+    # 1. Check /proposals command
+    tokens = []
+    async for token in session.process_turn("/proposals"):
+        tokens.append(token)
+    reply = "".join(tokens)
+    assert ("Review Queue" in reply) or ("Staged Memory Proposals" in reply)
+
+    # 2. Check /graph command for User
+    graph_tokens = []
+    async for token in session.process_turn("/graph User"):
+        graph_tokens.append(token)
+    graph_reply = "".join(graph_tokens)
+    assert ("Knowledge Graph" in graph_reply) or ("No active graph relationships" in graph_reply)
+
+    await memory_client.close()
+

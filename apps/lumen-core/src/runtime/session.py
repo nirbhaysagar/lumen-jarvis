@@ -3,6 +3,7 @@ Conversation Session & Context Orchestrator.
 Glues together Memory Engine retrieval, LiteLLM routing, and True Concurrency Task Supervisor.
 """
 from __future__ import annotations
+import re
 import uuid
 from typing import Any, AsyncGenerator, Callable, Coroutine
 from ..concurrency.models import TaskCheckpoint
@@ -31,6 +32,30 @@ def classify_preference(text: str) -> tuple[str, str]:
     if any(k in lowered for k in ["theme", "dark mode", "light mode", "color", "font", "ui"]):
         return "user_preference", "ui_theme"
     return "user_preference", "general"
+
+
+def extract_triples_from_utterance(text: str) -> list[tuple[str, str, str]]:
+    """Extracts candidate relational triples (Subject, Predicate, Object) from conversational text."""
+    lowered = text.lower().strip()
+    triples = []
+
+    m_pref = re.search(r'\bi prefer\s+([a-zA-Z0-9_\-\.\s]+?)(?:$|\.|\,)', lowered)
+    if m_pref:
+        triples.append(("User", "PREFERS", m_pref.group(1).strip().rstrip('.,;!?').title()))
+
+    m_dis = re.search(r'\b(?:i dislike|never use)\s+([a-zA-Z0-9_\-\.\s]+?)(?:$|\.|\,)', lowered)
+    if m_dis:
+        triples.append(("User", "DISLIKES", m_dis.group(1).strip().rstrip('.,;!?').title()))
+
+    m_f = re.search(r'\bi (?:founded|started)\s+([a-zA-Z0-9_\-\.\s]+?)(?:$|\.|\,)', lowered)
+    if m_f:
+        triples.append(("User", "FOUNDED", m_f.group(1).strip().rstrip('.,;!?').title()))
+
+    m_tech = re.search(r'\b(?:we use|we are using|uses)\s+([a-zA-Z0-9_\-\.]+)', lowered)
+    if m_tech:
+        triples.append(("Project Lumen", "USES", m_tech.group(1).rstrip('.,;!?').title()))
+
+    return triples
 
 
 class ConversationSession:
@@ -222,6 +247,56 @@ class ConversationSession:
             )
             return
 
+        if trimmed == "/proposals":
+            pending = await self.memory.list_review_queue(status="PENDING", trace_id=trace_id)
+            if not pending:
+                yield "The Review Queue is currently clean, Sir. No pending memory proposals."
+                return
+            lines = ["📋 Staged Memory Proposals in Review Queue (Two-Man Rule Gate):"]
+            for p in pending:
+                tier_badge = "⚠️ [CONTRADICTION - TIER B]" if p.get("tier") == "TIER_B" else "ℹ️ [TIER A]"
+                conflict = f"\n  Reason: {p['conflict_reason']}" if p.get("conflict_reason") else ""
+                lines.append(
+                    f"• [{p['id']}] {tier_badge}\n"
+                    f"  Proposal: `{p['subject_raw']}` ──[{p['predicate_raw']}]──► `{p['object_raw']}`"
+                    f"{conflict}\n"
+                    f"  Action: /approve-proposal {p['id']}  or  /reject-proposal {p['id']}"
+                )
+            yield "\n\n".join(lines)
+            return
+
+        if trimmed.startswith("/approve-proposal "):
+            prop_id = trimmed.split(" ", 1)[1].strip()
+            res = await self.memory.resolve_review_proposal(prop_id, decision="APPROVED", trace_id=trace_id)
+            if res:
+                yield f"✅ Proposal [{prop_id}] approved! Canonical relationship activated and superseding executed."
+            else:
+                yield f"Could not approve proposal [{prop_id}]. Ensure ID is valid."
+            return
+
+        if trimmed.startswith("/reject-proposal "):
+            prop_id = trimmed.split(" ", 1)[1].strip()
+            res = await self.memory.resolve_review_proposal(prop_id, decision="REJECTED", trace_id=trace_id)
+            if res:
+                yield f"❌ Proposal [{prop_id}] rejected and dismissed by operator."
+            else:
+                yield f"Could not reject proposal [{prop_id}]. Ensure ID is valid."
+            return
+
+        if trimmed.startswith("/graph"):
+            parts = trimmed.split(" ", 1)
+            target_entity = parts[1].strip() if len(parts) > 1 and parts[1].strip() else "User"
+            graph_data = await self.memory.traverse_graph(target_entity, max_depth=2, trace_id=trace_id)
+            if not graph_data or not graph_data.get("edges"):
+                yield f"No active graph relationships found connected to '{target_entity}', Sir."
+                return
+            lines = [f"🌐 Knowledge Graph Neighborhood for '{target_entity}':"]
+            for edge in graph_data["edges"]:
+                indent = "  " * edge["depth"]
+                lines.append(f"{indent}└─ [{edge['depth']}] `{edge['subject_name']}` ──[{edge['predicate']}]──► `{edge['object_name']}`")
+            yield "\n".join(lines)
+            return
+
         if trimmed.startswith("/trace "):
             fact_id = trimmed.split(" ", 1)[1].strip()
             trace_data = await self.memory.get_fact_trace(fact_id, trace_id=trace_id)
@@ -317,6 +392,28 @@ class ConversationSession:
                         "memory_type": "decision",
                         "epistemic_type": "decision",
                     })
+
+        # 7b. Submit extracted relationship triples to Knowledge Graph & Review Queue
+        extracted_triples = extract_triples_from_utterance(user_text)
+        if event_res and extracted_triples:
+            event_id = event_res.get("id")
+            for sub, pred, obj in extracted_triples:
+                prop_res = await self.memory.propose_triple(
+                    subject=sub,
+                    predicate=pred,
+                    object_=obj,
+                    source_event_id=event_id,
+                    trace_id=trace_id,
+                )
+                if prop_res and prop_res.get("action_taken") == "STAGED_FOR_REVIEW":
+                    proposal = prop_res.get("proposal", {})
+                    yield (
+                        f"\n\n⚡ [Review Queue Alert - Two-Man Rule]\n"
+                        f"A proposed belief update contradicts an existing active belief:\n"
+                        f"• {proposal.get('conflict_reason')}\n"
+                        f"To authorize this update, reply with: /approve-proposal {proposal.get('id')}\n"
+                        f"To reject and keep prior belief: /reject-proposal {proposal.get('id')}"
+                    )
 
         # 8. Automated Context Compaction (Evacuates turns if high watermark is reached)
         if self.compactor.should_compact(self.history):

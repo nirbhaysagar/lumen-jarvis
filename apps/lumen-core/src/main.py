@@ -45,6 +45,10 @@ async def main():
     else:
         print("Cognitive Engine: Local JARVIS Offline Protocol (Add OPENAI_API_KEY or GROQ_API_KEY to .env for live LLM generation).")
     print("Commands:")
+    print("  • /proposals       - View pending knowledge proposals in the Review Queue")
+    print("  • /approve-proposal <id> - Authorize a contradictory belief update")
+    print("  • /reject-proposal <id>  - Reject and dismiss a proposed belief change")
+    print("  • /graph [entity]  - Traverse and visualize connected entity relationships")
     print("  • /exec <command>  - Safely evaluate & execute a terminal command")
     print("  • /approve <id>    - Authorize a pending high-risk command (Two-Man Rule)")
     print("  • /reject <id>     - Reject & cancel a pending command")

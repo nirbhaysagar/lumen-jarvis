@@ -7,7 +7,17 @@ from abc import ABC, abstractmethod
 import uuid
 from datetime import datetime
 from typing import Sequence
-from .models import MemoryEvent, CanonicalFact, MemorySearchResult, MemoryType
+from .models import (
+    MemoryEvent,
+    CanonicalFact,
+    MemorySearchResult,
+    MemoryType,
+    Entity,
+    Triple,
+    ReviewProposal,
+    ProposalStatus,
+    ProposalTier,
+)
 
 
 class StoragePort(ABC):
@@ -54,6 +64,64 @@ class StoragePort(ABC):
     @abstractmethod
     async def get_fact_trace(self, fact_id: str | uuid.UUID) -> dict | None:
         """Retrieve the exact provenance chain (source events and historical lineage) for a given fact."""
+        pass
+
+    @abstractmethod
+    async def save_entity(self, entity: Entity, embedding: Sequence[float] | None = None) -> uuid.UUID:
+        """Store or update a canonical entity node with its aliases and optional embedding."""
+        pass
+
+    @abstractmethod
+    async def find_entity_by_name_or_alias(self, name_or_alias: str) -> Entity | None:
+        """Lookup an entity by canonical name or alias array match."""
+        pass
+
+    @abstractmethod
+    async def get_entity(self, entity_id: uuid.UUID) -> Entity | None:
+        """Fetch entity by primary key ID."""
+        pass
+
+    @abstractmethod
+    async def save_triple(self, triple: Triple) -> uuid.UUID:
+        """Persist a canonical relational triple with bi-temporal validity."""
+        pass
+
+    @abstractmethod
+    async def get_active_triples_for_subject(self, subject_id: uuid.UUID, predicate: str | None = None) -> list[Triple]:
+        """Fetch all currently active triples for a subject entity (valid_to IS NULL)."""
+        pass
+
+    @abstractmethod
+    async def stage_review_proposal(self, proposal: ReviewProposal) -> uuid.UUID:
+        """Insert a proposed triple or entity change into the Review Queue staging table."""
+        pass
+
+    @abstractmethod
+    async def list_review_proposals(
+        self,
+        status: ProposalStatus | None = None,
+        tier: ProposalTier | None = None,
+        limit: int = 50,
+    ) -> list[ReviewProposal]:
+        """List staged proposals from the review queue filtered by status and tier."""
+        pass
+
+    @abstractmethod
+    async def resolve_review_proposal(
+        self,
+        proposal_id: uuid.UUID,
+        decision: ProposalStatus,
+    ) -> bool:
+        """Approve or reject a staged proposal in the review queue."""
+        pass
+
+    @abstractmethod
+    async def traverse_graph(
+        self,
+        start_entity_id: uuid.UUID,
+        max_depth: int = 2,
+    ) -> list[dict]:
+        """Traverse connected entities and triples up to max_depth using recursive SQL."""
         pass
 
 

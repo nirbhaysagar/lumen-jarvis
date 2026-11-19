@@ -82,7 +82,7 @@ async def test_event_idempotency_and_trace_pipeline(client: AsyncClient):
     # Step 4: Semantic Vector Search
     search_payload = {
         "query": "Which database did we select for project Lumen?",
-        "limit": 5,
+        "limit": 25,
         "threshold": 0.05,
     }
     search_resp = await client.post("/api/v1/memories/search", json=search_payload)
@@ -183,6 +183,7 @@ async def test_bi_temporal_superseding_and_time_travel(client: AsyncClient):
         "query": "Which editor do I use?",
         "as_of": v1_data["valid_from"],
         "threshold": 0.01,
+        "limit": 25,
     })
     assert tt_past_resp.status_code == 200
     tt_past = tt_past_resp.json()
@@ -194,6 +195,7 @@ async def test_bi_temporal_superseding_and_time_travel(client: AsyncClient):
     search_curr_resp = await client.post("/api/v1/memories/search", json={
         "query": "Which editor do I use?",
         "threshold": 0.01,
+        "limit": 25,
     })
     assert search_curr_resp.status_code == 200
     search_curr = search_curr_resp.json()

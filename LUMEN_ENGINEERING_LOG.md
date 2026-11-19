@@ -15,7 +15,7 @@
 | **Phase 2** | True Concurrency ("The Spine") | **COMPLETE** | Native Async Supervisor, Semaphore Gate (k=4), Non-blocking stdin threadpool, Postgres Checkpointing | Pytest suite (1.50s, 4 tests passed), Live REPL verified |
 | **Phase 3** | Unbroken Bi-Temporal Memory | **COMPLETE** | Dual-clock time (Valid vs Transaction), Trace Provenance DAG, Automated Fact Superseding, Time-Travel Queries | Pytest suite (0.33s, 3 tests passed), Live REST & REPL `/trace` verified |
 | **Phase 4** | Safe Computer Control ("The Hands") | **COMPLETE** | Multi-Layered Defense (Pipeline Splitter, Python AST, Credential Sentinel, Env Scrubbing) | Automated security tests (0.53s, 15 tests passed), Live REPL `/exec` verified |
-| **Phase 5** | Knowledge Graph & Overnight Consolidation | **NEXT** | Entity-Relation Triples, Graph Traversal, Autonomous Contradiction Resolution Daemon | Graph retrieval latency, ACID entity resolution tests |
+| **Phase 5 (Current)** | Knowledge Graph & Review Queue | **IN PROGRESS (Steps 1 & 2 COMPLETE)** | 3-Table Schema (entities, triples, predicates), Two-Tier Entity Resolver, Review Queue Contradiction Gating | Automated test suite (0.50s, 7 tests passed), Live REPL `/proposals`, `/graph` verified |
 | **Phase 6** | Autonomous Web & Deep Research ("The Eyes") | QUEUED | Headless Browser Automation, Markdown Extraction, Document Ingestion | Scraping & DOM traversal integration tests |
 | **Phase 7** | Voice & Barge-in Gateway ("The Senses") | **SCHEDULED FOR CAPSTONE** | Full-duplex WebSocket, VAD interrupt tokens, Silero/Kokoro streaming (Architecture locked in `docs/VOICE_GATEWAY_ARCHITECTURE.md`) | Audio roundtrip latency tests |
 
@@ -31,6 +31,7 @@
 | **ADR-004** | Agent Concurrency Model | Native Async Supervisor + Postgres Checkpoints | Hatchet, DBOS, Celery | Sub-0.1ms dispatch latency; avoids heavy Go daemons/gRPC setup while ensuring durable task recovery. |
 | **ADR-005** | Resilience & Fault Tolerance | Circuit Breaker Pattern | Naive HTTP retries | Prevents agent thread exhaustion when Memory Engine is restarting or under load. |
 | **ADR-006** | Safe Computer Control Architecture | Three-Ring Security Defense (AST Gatekeeper + Two-Man Rule + Sandboxed Async Runner) | Unrestricted subshell execution, Container-only sandbox | Provides multi-layered defense-in-depth: immediate deterministic pattern filtering at AST level, interactive human authorization token gate for modifying tasks, and non-blocking timeout/cancellation-aware subprocess execution. |
+| **ADR-007** | Knowledge Graph Integrity & Review Queue | Event-Sourced 3-Table Schema + Tiered Review Queue | Unvalidated triple insertion, Unbounded graph growth | Solves the entity resolution trap (merging aliases like 'psql' -> 'PostgreSQL') and prevents epistemic corruption by gating contradictory belief shifts through a human-in-the-loop review queue. |
 
 ---
 
@@ -168,6 +169,39 @@
 
 ---
 
+### Phase 5: Knowledge Graph Integrity, Entities & Review Queue (Steps 1 & 2 COMPLETE)
+- **Technique:** Event-Sourced 3-Table Schema (`events`, `entities`, `triples`) + Controlled Predicate Ontology + Two-Tier Entity Resolver + Confidence-Tiered Review Queue.
+- **Microservice / Modules:** `packages/memory-engine/` and `apps/lumen-core/`
+  1. **Step 1: The 3-Table Normalized Relational Schema (`infra/docker/postgres/migrations/002_knowledge_graph_and_review_queue.sql`):**
+     - **`entities` table:** Unique canonical nodes (`canonical_name UNIQUE`), category (`person`, `organization`, `technology`, `project`), `aliases TEXT[]` with a dedicated PostgreSQL GIN index, and HNSW vector cosine index on dense embeddings.
+     - **`predicates` table:** Extensible controlled ontology seeded with 16 canonical relationships (`FOUNDED`, `DEVELOPS`, `USES`, `DEPENDS_ON`, `PREFERS`, `DISLIKES`, `WRITTEN_IN`, etc.) with inverse predicates and symmetry tracking.
+     - **`triples` table:** Relational graph edges (`subject_id FK`, `predicate FK`, `object_id FK`) with dual-clock bi-temporal validity (`valid_from`, `valid_to`), source event provenance array (`source_event_ids UUID[]`), and active edge partial index (`valid_to IS NULL`).
+     - **`review_queue` table:** Staging ground for proposed memory updates (`proposal_type`, `tier`, `status`, `conflict_reason`, `conflicting_triple_id`, `source_event_id`).
+  2. **Step 2: Two-Tier Entity Resolver & Review Queue Staging (`app/domain/resolver.py`):**
+     - **Two-Tier Entity Resolution:**
+       - *Tier 1:* Case-insensitive exact name and alias array containment lookup (`aliases @> ARRAY[name]`). Fast, deterministic, zero false positives.
+       - *Tier 2:* High-confidence vector embedding match ($>0.90$) for novel entity variations; automatic new entity creation when novel.
+     - **Controlled Predicate Normalization:**
+       - Normalizes colloquial verb phrases (`CREATED` $\to$ `FOUNDED`, `BUILDS` $\to$ `DEVELOPS`, `UTILIZES` $\to$ `USES`).
+     - **Confidence-Tiered Contradiction Gating:**
+       - *Tier A (Auto-Commit):* Non-conflicting assertions with confidence $\ge 0.85$ commit directly to canonical `triples` and log an `AUTO_COMMITTED` receipt.
+       - *Tier B (Human Review Queue):* Contradictory belief shifts (e.g. changing preferred editor from Neovim to VS Code) or low-confidence assertions pause in `review_queue` with `status = 'PENDING'` and an explicit human-readable conflict explanation.
+     - **Human Resolution:**
+       - `/approve-proposal <id>` atomically supersedes the conflicting triple (`valid_to = NOW()`) and activates the new triple.
+       - `/reject-proposal <id>` dismisses the proposed change, keeping the prior belief intact.
+  3. **Recursive Graph Traversal ($O(V+E)$):**
+     - Sub-millisecond multi-hop graph walking in PostgreSQL using Recursive Common Table Expressions (CTEs) with cycle prevention (`NOT (t.id = ANY(gw.path))`) and depth bounding.
+  4. **Runtime REPL & API Integration:**
+     - REPL commands: `/proposals`, `/approve-proposal <id>`, `/reject-proposal <id>`, `/graph [entity]`.
+     - Endpoints: `POST /api/v1/entities`, `POST /api/v1/graph/propose`, `GET /api/v1/graph/review-queue`, `POST /api/v1/graph/review-queue/{id}/resolve`, `GET /api/v1/graph/traverse/{entity}`.
+- **Verification & Test Results:**
+  - `packages/memory-engine/tests/test_knowledge_graph.py`: 4 passing integration tests in **0.43s**.
+  - `packages/memory-engine/tests/test_memory_api.py`: 3 passing integration tests in **0.49s**.
+  - `apps/lumen-core/tests/`: 26 passing unit & session tests in **4.55s**.
+  - Full project test suite: **33/33 automated tests green (100%)**.
+
+---
+
 ## 🗺️ 4. What We Are Building Next (Roadmap Checklist)
 
 - [x] **Phase 0:** Infrastructure Hub (PostgreSQL 16 + pgvector v0.8.7, Redis 7).
@@ -179,9 +213,11 @@
   - [x] Two-Man Rule approval gates (`AWAITING_APPROVAL`, `/approve`, `/reject`).
   - [x] Sandboxed execution runner with timeouts, cancellation, and stdout/stderr capture.
 - [ ] **Phase 5: Add-on 4 — Knowledge Graph & Overnight Consolidation (The Super-Brain):**
-  - [ ] Entity-Relation triple extraction (`(Subject)-[PREDICATE]->(Object)`).
-  - [ ] Relational graph schema in PostgreSQL with graph traversal queries.
-  - [ ] Overnight consolidation background daemon (detecting contradictions, merging duplicate memories, generating daily digests into Obsidian).
+  - [x] **Step 1:** Normalized 3-table relational schema (`entities`, `triples`, `predicates`) with bi-temporal validity.
+  - [x] **Step 2:** Two-Tier Entity Resolver & Review Queue Staging Buffer (preventing messy node duplicates and epistemic drift).
+  - [ ] **Step 3:** Transactional Outbox Pattern for decoupled Obsidian Vault Synchronization (`memory_outbox` + `pg_notify`).
+  - [ ] **Step 4:** Overnight Consolidation Daemon (contradiction patrol, semantic orphan clustering, morning intelligence digest).
+  - [ ] **Step 5:** Unified Hybrid Retrieval Service (`search()`) with Reciprocal Rank Fusion (BM25 + pgvector + graph).
 - [ ] **Phase 6: Add-on 5 — Autonomous Web & Deep Research ("The Eyes"):**
   - [ ] Headless browser / Crawl4AI markdown extraction.
   - [ ] Document reader agent and web search integration.

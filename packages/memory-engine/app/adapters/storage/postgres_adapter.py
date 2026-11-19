@@ -9,7 +9,18 @@ from typing import Sequence
 import asyncpg
 from pgvector.asyncpg import register_vector
 
-from app.domain.models import MemoryEvent, CanonicalFact, MemorySearchResult, MemoryType, EpistemicType
+from app.domain.models import (
+    MemoryEvent,
+    CanonicalFact,
+    MemorySearchResult,
+    MemoryType,
+    EpistemicType,
+    Entity,
+    Triple,
+    ReviewProposal,
+    ProposalStatus,
+    ProposalTier,
+)
 from app.domain.ports import StoragePort
 
 
@@ -407,3 +418,339 @@ class PostgresStorageAdapter(StoragePort):
                     for lr in lineage_rows
                 ],
             }
+
+    async def save_entity(self, entity: Entity, embedding: Sequence[float] | None = None) -> uuid.UUID:
+        """Store or update a canonical entity node with its aliases and optional embedding."""
+        if not self._pool:
+            raise RuntimeError("Database pool not connected.")
+
+        async with self._pool.acquire() as conn:
+            vec_param = list(embedding) if embedding else None
+            row = await conn.fetchrow(
+                """
+                INSERT INTO entities (id, canonical_name, category, aliases, description, embedding, metadata, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+                ON CONFLICT (canonical_name) DO UPDATE SET
+                    aliases = ARRAY(SELECT DISTINCT unnest(entities.aliases || EXCLUDED.aliases)),
+                    category = COALESCE(EXCLUDED.category, entities.category),
+                    description = COALESCE(EXCLUDED.description, entities.description),
+                    embedding = COALESCE(EXCLUDED.embedding, entities.embedding),
+                    metadata = entities.metadata || EXCLUDED.metadata,
+                    updated_at = NOW()
+                RETURNING id;
+                """,
+                entity.id,
+                entity.canonical_name,
+                entity.category,
+                entity.aliases,
+                entity.description,
+                vec_param,
+                json.dumps(entity.metadata),
+                entity.created_at,
+            )
+            return row["id"]
+
+    async def find_entity_by_name_or_alias(self, name_or_alias: str) -> Entity | None:
+        """Lookup an entity by canonical name or alias match (case-insensitive)."""
+        if not self._pool:
+            raise RuntimeError("Database pool not connected.")
+
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT id, canonical_name, category, aliases, description, metadata, created_at, updated_at
+                FROM entities
+                WHERE LOWER(canonical_name) = LOWER($1)
+                   OR $1 = ANY(aliases)
+                   OR LOWER($1) = ANY(SELECT LOWER(unnest(aliases)))
+                LIMIT 1;
+                """,
+                name_or_alias.strip(),
+            )
+            if not row:
+                return None
+            return Entity(
+                id=row["id"],
+                canonical_name=row["canonical_name"],
+                category=row["category"],
+                aliases=list(row["aliases"]) if row["aliases"] else [],
+                description=row["description"],
+                metadata=json.loads(row["metadata"]) if isinstance(row["metadata"], str) else (row["metadata"] or {}),
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+            )
+
+    async def get_entity(self, entity_id: uuid.UUID) -> Entity | None:
+        """Fetch entity by primary key ID."""
+        if not self._pool:
+            raise RuntimeError("Database pool not connected.")
+
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT id, canonical_name, category, aliases, description, metadata, created_at, updated_at FROM entities WHERE id = $1",
+                entity_id,
+            )
+            if not row:
+                return None
+            return Entity(
+                id=row["id"],
+                canonical_name=row["canonical_name"],
+                category=row["category"],
+                aliases=list(row["aliases"]) if row["aliases"] else [],
+                description=row["description"],
+                metadata=json.loads(row["metadata"]) if isinstance(row["metadata"], str) else (row["metadata"] or {}),
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+            )
+
+    async def save_triple(self, triple: Triple) -> uuid.UUID:
+        """Persist a canonical relational triple with bi-temporal validity."""
+        if not self._pool:
+            raise RuntimeError("Database pool not connected.")
+
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO triples (id, subject_id, predicate, object_id, confidence, source_event_ids, valid_from, valid_to, metadata, created_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                RETURNING id;
+                """,
+                triple.id,
+                triple.subject_id,
+                triple.predicate,
+                triple.object_id,
+                triple.confidence,
+                triple.source_event_ids,
+                triple.valid_from,
+                triple.valid_to,
+                json.dumps(triple.metadata),
+                triple.created_at,
+            )
+            return row["id"]
+
+    async def get_active_triples_for_subject(self, subject_id: uuid.UUID, predicate: str | None = None) -> list[Triple]:
+        """Fetch all currently active triples for a subject entity (valid_to IS NULL)."""
+        if not self._pool:
+            raise RuntimeError("Database pool not connected.")
+
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, subject_id, predicate, object_id, confidence, source_event_ids, valid_from, valid_to, metadata, created_at
+                FROM triples
+                WHERE subject_id = $1 AND valid_to IS NULL
+                  AND ($2::text IS NULL OR predicate = $2);
+                """,
+                subject_id,
+                predicate,
+            )
+            return [
+                Triple(
+                    id=r["id"],
+                    subject_id=r["subject_id"],
+                    predicate=r["predicate"],
+                    object_id=r["object_id"],
+                    confidence=r["confidence"],
+                    source_event_ids=list(r["source_event_ids"]) if r["source_event_ids"] else [],
+                    valid_from=r["valid_from"],
+                    valid_to=r["valid_to"],
+                    metadata=json.loads(r["metadata"]) if isinstance(r["metadata"], str) else (r["metadata"] or {}),
+                    created_at=r["created_at"],
+                )
+                for r in rows
+            ]
+
+    async def stage_review_proposal(self, proposal: ReviewProposal) -> uuid.UUID:
+        """Insert a proposed triple or entity change into the Review Queue staging table."""
+        if not self._pool:
+            raise RuntimeError("Database pool not connected.")
+
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO review_queue (
+                    id, proposal_type, subject_raw, predicate_raw, object_raw,
+                    resolved_subject_id, resolved_predicate, resolved_object_id,
+                    confidence, tier, status, conflict_reason, conflicting_triple_id,
+                    source_event_id, created_at, reviewed_at
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+                RETURNING id;
+                """,
+                proposal.id,
+                proposal.proposal_type,
+                proposal.subject_raw,
+                proposal.predicate_raw,
+                proposal.object_raw,
+                proposal.resolved_subject_id,
+                proposal.resolved_predicate,
+                proposal.resolved_object_id,
+                proposal.confidence,
+                proposal.tier.value if hasattr(proposal.tier, "value") else str(proposal.tier),
+                proposal.status.value if hasattr(proposal.status, "value") else str(proposal.status),
+                proposal.conflict_reason,
+                proposal.conflicting_triple_id,
+                proposal.source_event_id,
+                proposal.created_at,
+                proposal.reviewed_at,
+            )
+            return row["id"]
+
+    async def list_review_proposals(
+        self,
+        status: ProposalStatus | None = None,
+        tier: ProposalTier | None = None,
+        limit: int = 50,
+    ) -> list[ReviewProposal]:
+        """List staged proposals from the review queue filtered by status and tier."""
+        if not self._pool:
+            raise RuntimeError("Database pool not connected.")
+
+        status_val = status.value if hasattr(status, "value") else status
+        tier_val = tier.value if hasattr(tier, "value") else tier
+
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, proposal_type, subject_raw, predicate_raw, object_raw,
+                       resolved_subject_id, resolved_predicate, resolved_object_id,
+                       confidence, tier, status, conflict_reason, conflicting_triple_id,
+                       source_event_id, created_at, reviewed_at
+                FROM review_queue
+                WHERE ($1::text IS NULL OR status = $1)
+                  AND ($2::text IS NULL OR tier = $2)
+                ORDER BY created_at DESC
+                LIMIT $3;
+                """,
+                status_val,
+                tier_val,
+                limit,
+            )
+            return [
+                ReviewProposal(
+                    id=r["id"],
+                    proposal_type=r["proposal_type"],
+                    subject_raw=r["subject_raw"],
+                    predicate_raw=r["predicate_raw"],
+                    object_raw=r["object_raw"],
+                    resolved_subject_id=r["resolved_subject_id"],
+                    resolved_predicate=r["resolved_predicate"],
+                    resolved_object_id=r["resolved_object_id"],
+                    confidence=r["confidence"],
+                    tier=ProposalTier(r["tier"]),
+                    status=ProposalStatus(r["status"]),
+                    conflict_reason=r["conflict_reason"],
+                    conflicting_triple_id=r["conflicting_triple_id"],
+                    source_event_id=r["source_event_id"],
+                    created_at=r["created_at"],
+                    reviewed_at=r["reviewed_at"],
+                )
+                for r in rows
+            ]
+
+    async def resolve_review_proposal(
+        self,
+        proposal_id: uuid.UUID,
+        decision: ProposalStatus,
+    ) -> bool:
+        """Approve or reject a staged proposal in the review queue."""
+        if not self._pool:
+            raise RuntimeError("Database pool not connected.")
+
+        decision_val = decision.value if hasattr(decision, "value") else str(decision)
+
+        async with self._pool.acquire() as conn:
+            async with conn.transaction():
+                prop = await conn.fetchrow("SELECT * FROM review_queue WHERE id = $1 FOR UPDATE;", proposal_id)
+                if not prop:
+                    return False
+
+                if decision == ProposalStatus.APPROVED:
+                    # If this was a contradiction update, retire old conflicting triple
+                    if prop["conflicting_triple_id"]:
+                        await conn.execute(
+                            "UPDATE triples SET valid_to = NOW() WHERE id = $1 AND valid_to IS NULL;",
+                            prop["conflicting_triple_id"],
+                        )
+
+                    # Insert new canonical triple
+                    if prop["resolved_subject_id"] and prop["resolved_predicate"] and prop["resolved_object_id"]:
+                        await conn.execute(
+                            """
+                            INSERT INTO triples (subject_id, predicate, object_id, confidence, source_event_ids, valid_from)
+                            VALUES ($1, $2, $3, $4, ARRAY[$5::uuid], NOW());
+                            """,
+                            prop["resolved_subject_id"],
+                            prop["resolved_predicate"],
+                            prop["resolved_object_id"],
+                            prop["confidence"],
+                            prop["source_event_id"],
+                        )
+
+                # Update review queue row
+                await conn.execute(
+                    "UPDATE review_queue SET status = $1, reviewed_at = NOW() WHERE id = $2;",
+                    decision_val,
+                    proposal_id,
+                )
+                return True
+
+    async def traverse_graph(
+        self,
+        start_entity_id: uuid.UUID,
+        max_depth: int = 2,
+    ) -> list[dict]:
+        """Traverse connected entities and triples up to max_depth using recursive SQL."""
+        if not self._pool:
+            raise RuntimeError("Database pool not connected.")
+
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                WITH RECURSIVE graph_walk AS (
+                    SELECT t.id as triple_id, t.subject_id, t.predicate, t.object_id,
+                           e_sub.canonical_name as subject_name,
+                           e_obj.canonical_name as object_name,
+                           1 as depth,
+                           ARRAY[t.id] as path
+                    FROM triples t
+                    JOIN entities e_sub ON t.subject_id = e_sub.id
+                    JOIN entities e_obj ON t.object_id = e_obj.id
+                    WHERE (t.subject_id = $1 OR t.object_id = $1)
+                      AND t.valid_to IS NULL
+
+                    UNION ALL
+
+                    SELECT t.id as triple_id, t.subject_id, t.predicate, t.object_id,
+                           e_sub.canonical_name as subject_name,
+                           e_obj.canonical_name as object_name,
+                           gw.depth + 1,
+                           gw.path || t.id
+                    FROM triples t
+                    JOIN graph_walk gw ON (t.subject_id = gw.object_id OR t.object_id = gw.subject_id)
+                    JOIN entities e_sub ON t.subject_id = e_sub.id
+                    JOIN entities e_obj ON t.object_id = e_obj.id
+                    WHERE gw.depth < $2
+                      AND t.valid_to IS NULL
+                      AND NOT (t.id = ANY(gw.path))
+                )
+                SELECT DISTINCT triple_id, subject_id, predicate, object_id, subject_name, object_name, depth
+                FROM graph_walk
+                ORDER BY depth ASC;
+                """,
+                start_entity_id,
+                max_depth,
+            )
+            return [
+                {
+                    "triple_id": str(r["triple_id"]),
+                    "subject_id": str(r["subject_id"]),
+                    "predicate": r["predicate"],
+                    "object_id": str(r["object_id"]),
+                    "subject_name": r["subject_name"],
+                    "object_name": r["object_name"],
+                    "depth": r["depth"],
+                }
+                for r in rows
+            ]
+

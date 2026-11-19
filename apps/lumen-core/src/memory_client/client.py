@@ -190,5 +190,121 @@ class MemoryServiceClient:
             self._record_failure()
             return []
 
+    async def propose_triple(
+        self,
+        subject: str,
+        predicate: str,
+        object_: str,
+        confidence: float = 1.0,
+        source_event_id: str | None = None,
+        trace_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Submit a candidate triple assertion through the Review Queue resolver."""
+        if self.circuit_open:
+            return None
+
+        headers = {"X-Trace-ID": trace_id} if trace_id else {}
+        try:
+            resp = await self._client.post(
+                f"{self.base_url}/api/v1/graph/propose",
+                headers=headers,
+                json={
+                    "subject": subject,
+                    "predicate": predicate,
+                    "object": object_,
+                    "confidence": confidence,
+                    "source_event_id": source_event_id,
+                },
+            )
+            if resp.status_code == 200:
+                self._record_success()
+                return resp.json()
+            return None
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError):
+            self._record_failure()
+            return None
+
+    async def list_review_queue(
+        self,
+        status: str | None = "PENDING",
+        tier: str | None = None,
+        limit: int = 50,
+        trace_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Fetch pending proposals from the review queue."""
+        if self.circuit_open:
+            return []
+
+        headers = {"X-Trace-ID": trace_id} if trace_id else {}
+        params = {"limit": limit}
+        if status:
+            params["status"] = status
+        if tier:
+            params["tier"] = tier
+
+        try:
+            resp = await self._client.get(
+                f"{self.base_url}/api/v1/graph/review-queue",
+                headers=headers,
+                params=params,
+            )
+            if resp.status_code == 200:
+                self._record_success()
+                return resp.json()
+            return []
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError):
+            self._record_failure()
+            return []
+
+    async def resolve_review_proposal(
+        self,
+        proposal_id: str,
+        decision: str,
+        trace_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Approve or reject a staged proposal in the review queue."""
+        if self.circuit_open:
+            return None
+
+        headers = {"X-Trace-ID": trace_id} if trace_id else {}
+        try:
+            resp = await self._client.post(
+                f"{self.base_url}/api/v1/graph/review-queue/{proposal_id}/resolve",
+                headers=headers,
+                json={"decision": decision},
+            )
+            if resp.status_code == 200:
+                self._record_success()
+                return resp.json()
+            return None
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError):
+            self._record_failure()
+            return None
+
+    async def traverse_graph(
+        self,
+        entity_name_or_id: str,
+        max_depth: int = 2,
+        trace_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Traverse connected entities and triples starting from an entity."""
+        if self.circuit_open:
+            return None
+
+        headers = {"X-Trace-ID": trace_id} if trace_id else {}
+        try:
+            resp = await self._client.get(
+                f"{self.base_url}/api/v1/graph/traverse/{entity_name_or_id}",
+                headers=headers,
+                params={"max_depth": max_depth},
+            )
+            if resp.status_code == 200:
+                self._record_success()
+                return resp.json()
+            return None
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError):
+            self._record_failure()
+            return None
+
     async def close(self):
         await self._client.aclose()

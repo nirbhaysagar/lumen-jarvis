@@ -67,3 +67,76 @@ class MemorySearchResult:
     fact: CanonicalFact
     similarity: float                   # Cosine similarity score (0.0 to 1.0)
     source_citations: list[dict] = field(default_factory=list)
+
+
+@dataclass
+class Entity:
+    """Canonical entity node with aliases and embedding representation."""
+    canonical_name: str
+    category: str = "concept"           # 'person', 'organization', 'technology', 'project', etc.
+    aliases: list[str] = field(default_factory=list)
+    description: str | None = None
+    embedding: list[float] | None = None
+    metadata: dict = field(default_factory=dict)
+    id: uuid.UUID = field(default_factory=uuid.uuid4)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+@dataclass
+class Predicate:
+    """Controlled extensible relationship predicate."""
+    id: str                             # Canonical identifier e.g. 'FOUNDED', 'USES'
+    inverse_predicate: str | None = None
+    description: str | None = None
+    is_symmetric: bool = False
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+@dataclass
+class Triple:
+    """Directed relational graph edge linking two canonical entities with bi-temporal validity."""
+    subject_id: uuid.UUID
+    predicate: str
+    object_id: uuid.UUID
+    confidence: float = 1.0
+    source_event_ids: list[uuid.UUID] = field(default_factory=list)
+    valid_from: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    valid_to: datetime | None = None
+    metadata: dict = field(default_factory=dict)
+    id: uuid.UUID = field(default_factory=uuid.uuid4)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ProposalTier(str, Enum):
+    TIER_A = "TIER_A"                   # High confidence, zero contradiction -> Auto-committed
+    TIER_B = "TIER_B"                   # Contradiction, ambiguous alias, or belief shift -> Human Review
+
+
+class ProposalStatus(str, Enum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    AUTO_COMMITTED = "AUTO_COMMITTED"
+
+
+@dataclass
+class ReviewProposal:
+    """Staged proposal in the Review Queue before or after resolution."""
+    proposal_type: str                  # 'NEW_TRIPLE', 'ALIAS_MERGE', 'CONTRADICTION_UPDATE', 'NEW_ENTITY'
+    subject_raw: str
+    predicate_raw: str
+    object_raw: str
+    resolved_subject_id: uuid.UUID | None = None
+    resolved_predicate: str | None = None
+    resolved_object_id: uuid.UUID | None = None
+    confidence: float = 1.0
+    tier: ProposalTier = ProposalTier.TIER_B
+    status: ProposalStatus = ProposalStatus.PENDING
+    conflict_reason: str | None = None
+    conflicting_triple_id: uuid.UUID | None = None
+    source_event_id: uuid.UUID | None = None
+    id: uuid.UUID = field(default_factory=uuid.uuid4)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    reviewed_at: datetime | None = None
+
