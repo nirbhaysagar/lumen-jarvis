@@ -116,35 +116,55 @@ class PostgresStorageAdapter(StoragePort):
             return row["id"]
 
     async def save_fact(self, fact: CanonicalFact, embedding: Sequence[float]) -> uuid.UUID:
-        """Store canonical fact with vector embedding."""
+        """Store canonical fact with vector embedding, automatically superseding previous active versions."""
         if not self._pool:
             raise RuntimeError("Database pool not connected.")
 
         value_json = json.dumps(fact.value)
 
         async with self._pool.acquire() as conn:
-            row = await conn.fetchrow(
-                """
-                INSERT INTO facts (
-                    id, entity, attribute, value, memory_type, epistemic_type, 
-                    confidence, source_event_ids, valid_from, valid_to, embedding
+            async with conn.transaction():
+                # 1. Automated Bi-Temporal Superseding:
+                # If this fact is active (valid_to is None), retire previous active assertions for this entity/attribute.
+                if fact.valid_to is None:
+                    await conn.execute(
+                        """
+                        UPDATE facts
+                        SET valid_to = $1
+                        WHERE entity = $2
+                          AND attribute = $3
+                          AND (valid_to IS NULL OR valid_to > $1)
+                          AND id != $4;
+                        """,
+                        fact.valid_from,
+                        fact.entity,
+                        fact.attribute,
+                        fact.id,
+                    )
+
+                # 2. Insert the new canonical fact
+                row = await conn.fetchrow(
+                    """
+                    INSERT INTO facts (
+                        id, entity, attribute, value, memory_type, epistemic_type, 
+                        confidence, source_event_ids, valid_from, valid_to, embedding
+                    )
+                    VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11)
+                    RETURNING id;
+                    """,
+                    fact.id,
+                    fact.entity,
+                    fact.attribute,
+                    value_json,
+                    fact.memory_type.value,
+                    fact.epistemic_type.value,
+                    fact.confidence,
+                    fact.source_event_ids,
+                    fact.valid_from,
+                    fact.valid_to,
+                    embedding,
                 )
-                VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11)
-                RETURNING id;
-                """,
-                fact.id,
-                fact.entity,
-                fact.attribute,
-                value_json,
-                fact.memory_type.value,
-                fact.epistemic_type.value,
-                fact.confidence,
-                fact.source_event_ids,
-                fact.valid_from,
-                fact.valid_to,
-                embedding,
-            )
-            return row["id"]
+                return row["id"]
 
     async def search_facts(
         self,
@@ -153,7 +173,7 @@ class PostgresStorageAdapter(StoragePort):
         threshold: float = 0.5,
         memory_types: Sequence[MemoryType] | None = None,
     ) -> list[MemorySearchResult]:
-        """Perform HNSW cosine vector search in PostgreSQL."""
+        """Perform HNSW cosine vector search in PostgreSQL against currently valid facts."""
         if not self._pool:
             raise RuntimeError("Database pool not connected.")
 
@@ -201,8 +221,65 @@ class PostgresStorageAdapter(StoragePort):
                 ))
             return results
 
+    async def search_facts_at_time(
+        self,
+        query_embedding: Sequence[float],
+        as_of: datetime,
+        limit: int = 5,
+        threshold: float = 0.01,
+        memory_types: Sequence[MemoryType] | None = None,
+    ) -> list[MemorySearchResult]:
+        """Perform bi-temporal time-travel cosine vector retrieval as of a specific point in time."""
+        if not self._pool:
+            raise RuntimeError("Database pool not connected.")
+
+        type_filters = [t.value for t in memory_types] if memory_types else None
+
+        query = """
+            SELECT 
+                id, entity, attribute, value, memory_type, epistemic_type,
+                confidence, source_event_ids, valid_from, valid_to,
+                1 - (embedding <=> $1) AS similarity
+            FROM facts
+            WHERE valid_from <= $2
+              AND (valid_to IS NULL OR valid_to > $2)
+              AND ($4::text[] IS NULL OR memory_type = ANY($4::text[]))
+              AND 1 - (embedding <=> $1) >= $5
+            ORDER BY embedding <=> $1
+            LIMIT $3;
+        """
+
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(query, query_embedding, as_of, limit, type_filters, threshold)
+            results = []
+            for r in rows:
+                val = r["value"]
+                if isinstance(val, str):
+                    try:
+                        val = json.loads(val)
+                    except Exception:
+                        pass
+
+                fact = CanonicalFact(
+                    id=r["id"],
+                    entity=r["entity"],
+                    attribute=r["attribute"],
+                    value=val,
+                    memory_type=MemoryType(r["memory_type"]),
+                    epistemic_type=EpistemicType(r["epistemic_type"]),
+                    confidence=r["confidence"],
+                    source_event_ids=list(r["source_event_ids"]),
+                    valid_from=r["valid_from"],
+                    valid_to=r["valid_to"],
+                )
+                results.append(MemorySearchResult(
+                    fact=fact,
+                    similarity=float(r["similarity"]),
+                ))
+            return results
+
     async def get_fact_trace(self, fact_id: uuid.UUID) -> dict | None:
-        """Retrieve fact and its full provenance trace back to source events."""
+        """Retrieve fact, its full provenance trace back to source events, and historical evolution lineage."""
         if not self._pool:
             raise RuntimeError("Database pool not connected.")
 
@@ -219,12 +296,32 @@ class PostgresStorageAdapter(StoragePort):
                     source_event_ids,
                 )
 
+            # Historical lineage: all facts for the same entity and attribute
+            lineage_rows = await conn.fetch(
+                """
+                SELECT id, entity, attribute, value, memory_type, epistemic_type, confidence, source_event_ids, valid_from, valid_to
+                FROM facts
+                WHERE entity = $1 AND attribute = $2
+                ORDER BY valid_from ASC;
+                """,
+                fact_row["entity"],
+                fact_row["attribute"],
+            )
+
             val = fact_row["value"]
             if isinstance(val, str):
                 try:
                     val = json.loads(val)
                 except Exception:
                     pass
+
+            def parse_val(v):
+                if isinstance(v, str):
+                    try:
+                        return json.loads(v)
+                    except Exception:
+                        pass
+                return v
 
             return {
                 "fact": {
@@ -249,5 +346,20 @@ class PostgresStorageAdapter(StoragePort):
                         "hash": e["hash"],
                     }
                     for e in event_rows
+                ],
+                "history_lineage": [
+                    {
+                        "id": str(lr["id"]),
+                        "entity": lr["entity"],
+                        "attribute": lr["attribute"],
+                        "value": parse_val(lr["value"]),
+                        "memory_type": lr["memory_type"],
+                        "epistemic_type": lr["epistemic_type"],
+                        "confidence": lr["confidence"],
+                        "source_event_ids": [str(sid) for sid in lr["source_event_ids"]],
+                        "valid_from": lr["valid_from"].isoformat(),
+                        "valid_to": lr["valid_to"].isoformat() if lr["valid_to"] else None,
+                    }
+                    for lr in lineage_rows
                 ],
             }

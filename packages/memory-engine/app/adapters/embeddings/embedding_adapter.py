@@ -5,6 +5,7 @@ Supports both external LLM embedding APIs (OpenAI/LiteLLM) and local fallback.
 from __future__ import annotations
 import math
 import hashlib
+import re
 from typing import Sequence
 import httpx
 from app.domain.ports import EmbeddingPort
@@ -25,7 +26,7 @@ class DeterministicHashEmbeddingAdapter(EmbeddingPort):
 
     async def generate_embedding(self, text: str) -> list[float]:
         vec = [0.0] * self._dim
-        words = text.lower().split()
+        words = re.findall(r"\w+", text.lower())
         if not words:
             vec[0] = 1.0
             return vec

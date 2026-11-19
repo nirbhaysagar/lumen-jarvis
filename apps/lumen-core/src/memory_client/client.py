@@ -134,5 +134,61 @@ class MemoryServiceClient:
             self._record_failure()
             return None
 
+    async def get_fact_trace(
+        self,
+        fact_id: str,
+        trace_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Retrieve full bi-temporal provenance and historical lineage for a fact."""
+        if self.circuit_open:
+            return None
+
+        headers = {"X-Trace-ID": trace_id} if trace_id else {}
+        try:
+            resp = await self._client.get(
+                f"{self.base_url}/api/v1/trace/{fact_id}",
+                headers=headers,
+            )
+            if resp.status_code == 200:
+                self._record_success()
+                return resp.json()
+            return None
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError):
+            self._record_failure()
+            return None
+
+    async def time_travel_search(
+        self,
+        query: str,
+        as_of: str,
+        limit: int = 4,
+        threshold: float = 0.01,
+        trace_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Query memory as of a historical moment in time."""
+        if self.circuit_open:
+            return []
+
+        headers = {"X-Trace-ID": trace_id} if trace_id else {}
+        try:
+            resp = await self._client.post(
+                f"{self.base_url}/api/v1/memories/time-travel",
+                headers=headers,
+                json={
+                    "query": query,
+                    "as_of": as_of,
+                    "limit": limit,
+                    "threshold": threshold,
+                },
+            )
+            if resp.status_code == 200:
+                self._record_success()
+                data = resp.json()
+                return data.get("results", [])
+            return []
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError):
+            self._record_failure()
+            return []
+
     async def close(self):
         await self._client.aclose()

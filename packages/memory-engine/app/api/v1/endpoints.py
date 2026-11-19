@@ -16,6 +16,8 @@ from app.schemas.memories import (
     SearchMemoryRequest,
     SearchMemoryResponse,
     SearchMemoryItem,
+    SearchMemoryResponse,
+    TimeTravelRequest,
     TraceResponse,
 )
 
@@ -128,6 +130,53 @@ async def search_memories(
             confidence=r.fact.confidence,
             similarity=round(r.similarity, 4),
             source_event_ids=r.fact.source_event_ids,
+        )
+        for r in results
+    ]
+
+    return SearchMemoryResponse(
+        query=req.query,
+        total=len(items),
+        execution_time_ms=round(elapsed_ms, 2),
+        results=items,
+    )
+
+
+@router.post("/memories/time-travel", response_model=SearchMemoryResponse)
+async def time_travel_search(
+    req: TimeTravelRequest,
+    storage: Annotated[StoragePort, Depends(get_storage)],
+    embedder: Annotated[EmbeddingPort, Depends(get_embedding)],
+):
+    """
+    Bi-Temporal Time-Travel Retrieval:
+    Reconstructs the agent's memory state exactly as it existed at `as_of` in history.
+    """
+    start_time = time.perf_counter()
+    query_vector = await embedder.generate_embedding(req.query)
+
+    results = await storage.search_facts_at_time(
+        query_embedding=query_vector,
+        as_of=req.as_of,
+        limit=req.limit,
+        threshold=req.threshold,
+        memory_types=req.types,
+    )
+    elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+
+    items = [
+        SearchMemoryItem(
+            id=r.fact.id,
+            entity=r.fact.entity,
+            attribute=r.fact.attribute,
+            value=r.fact.value,
+            memory_type=r.fact.memory_type,
+            epistemic_type=r.fact.epistemic_type,
+            confidence=r.fact.confidence,
+            similarity=round(r.similarity, 4),
+            source_event_ids=r.fact.source_event_ids,
+            valid_from=r.fact.valid_from,
+            valid_to=r.fact.valid_to,
         )
         for r in results
     ]

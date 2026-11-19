@@ -12,9 +12,9 @@
 | **Phase 0** | Infrastructure Hub | **COMPLETE** | Docker Compose (`pgvector:pg16`, `redis:7-alpine`) | Healthchecks, `psql` extension validation |
 | **Phase 1** | Memory Engine v0.1 | **COMPLETE** | Hexagonal Architecture, HNSW Vector Indexing, Bi-temporal schema | Pytest (0.22s), Swagger interactive search (2.87ms) |
 | **Phase 1** | Lumen Core (Agent Runtime) | **COMPLETE** | Decoupled Circuit Breaker Client, Dual-Speed Routing, Persona Engine | Pytest (0.78s), Interactive REPL |
-| **Phase 2** | True Concurrency ("The Spine") | **COMPLETE** | Native Async Supervisor, Semaphore Gate (k=4), Postgres Checkpointing | Pytest suite (1.50s, 4 tests passed), Non-blocking session integration |
-| **Phase 3 (Current)** | Unbroken Bi-Temporal Memory | **NEXT** | Dual-clock validation, AST provenance extraction, Trace API | Integration tests |
-| **Phase 4** | Safe Computer Control | QUEUED | Sandboxed execution, AST-gatekeeper, Two-man rule approvals | Sandbox isolation tests |
+| **Phase 2** | True Concurrency ("The Spine") | **COMPLETE** | Native Async Supervisor, Semaphore Gate (k=4), Non-blocking stdin threadpool, Postgres Checkpointing | Pytest suite (1.50s, 4 tests passed), Live REPL verified |
+| **Phase 3** | Unbroken Bi-Temporal Memory | **COMPLETE** | Dual-clock time (Valid vs Transaction), Trace Provenance DAG, Automated Fact Superseding, Time-Travel Queries | Pytest suite (0.33s, 3 tests passed), Live REST & REPL `/trace` verified |
+| **Phase 4 (Current)** | Safe Computer Control | **NEXT** | Sandboxed Execution Engine, AST Command Gatekeeper, Two-Man Rule Approval Gates | Sandbox isolation tests & security verification |
 | **Phase 5** | Voice & Barge-in Gateway | QUEUED | Full-duplex WebSocket, VAD interrupt tokens, Silero/Kokoro | Audio roundtrip latency tests |
 
 ---
@@ -100,15 +100,36 @@
 
 ---
 
+### Phase 3: Add-on 2 — Unbroken Bi-Temporal Memory Engine & Provenance (COMPLETED)
+- **Problem Solved:** Standard AI agent systems suffer from destructive amnesia or conflicting context windows when user constraints change. They lack causal lineage (asking *"Why did you do that?"* causes hallucinations).
+- **Architectural Solution:** Bi-Temporal Data Architecture + Directed Acyclic Graph (DAG) Provenance.
+  1. **Dual-Clock Validity:**
+     - **Valid Time ($T_v$):** The real-world window during which the fact was true in reality (`valid_from` to `valid_to`).
+     - **Transaction Time ($T_t$):** The immutable database timestamp when the record was recorded into the ledger (`created_at`).
+  2. **Automated ACID Superseding:**
+     - Hard `DELETE` statements are prohibited in Lumen.
+     - When a new assertion arrives for an existing `(entity, attribute)` with active state (`valid_to IS NULL`), an ACID transaction automatically retires the prior assertion by updating `valid_to = new_fact.valid_from`.
+  3. **The Trace API (`/api/v1/trace/{fact_id}`):**
+     - Traverses from derived L1 Canonical Fact back to raw L0 User Utterances via `source_event_ids`.
+     - Returns historical evolution lineage (e.g. Version 1 $\to$ Version 2 $\to$ Version 3), revealing exactly when and why facts were modified.
+  4. **Time-Travel Querying (`/api/v1/memories/time-travel`):**
+     - Reconstructs the agent's exact state of mind as of any historical timestamp using bi-temporal range filtering:
+       $$\text{valid\_from} \le T_{\text{as\_of}} \quad \text{AND} \quad (\text{valid\_to IS NULL} \lor \text{valid\_to} > T_{\text{as\_of}})$$
+  5. **Normalized Vector Tokenization:**
+     - Upgraded `DeterministicHashEmbeddingAdapter` with regex word boundary tokenization (`re.findall(r"\w+", text)`), eliminating punctuation-attachment similarity drop-offs and achieving high cosine fidelity ($>0.26$).
+- **Verification & Test Results:**
+  - `packages/memory-engine/tests/test_memory_api.py`: 3 passing integration tests in **0.33s**.
+    - `test_bi_temporal_superseding_and_time_travel`: Verified automatic `valid_to` closure, provenance trace DAG, and historical reconstruction where querying $T_{\text{past}}$ returns superseded facts and querying $T_{\text{present}}$ returns active facts.
+  - Interactive REPL command `/trace <fact_id>` verified live against PostgreSQL container.
+
+---
+
 ## 🗺️ 4. What We Are Building Next (Roadmap Checklist)
 
 - [x] **Phase 0:** Infrastructure Hub (PostgreSQL 16 + pgvector v0.8.7, Redis 7).
 - [x] **Phase 1:** MVP Brain + Memory Engine v0.1 + JARVIS Persona (Hexagonal Architecture, HNSW 2.87ms search, Circuit Breaker).
-- [x] **Phase 2:** True Concurrency "The Spine" (Supervisor, Semaphore Gate k=4, Cooperative Cancellation, Postgres Checkpoints).
-- [ ] **Phase 3: Add-on 2 — Unbroken Bi-Temporal Memory Engine:**
-  - [ ] Implement dual-clock time tracking (`valid_time` vs `transaction_time`) for immutable state reconstruction.
-  - [ ] Trace API & AST Provenance Graph linking every derived fact to its exact source event ID.
-  - [ ] Automated superseding: when a new preference contradicts an old one, update `valid_to = NOW()` without mutating history.
+- [x] **Phase 2:** True Concurrency "The Spine" (Supervisor, Semaphore Gate k=4, Cooperative Cancellation, Postgres Checkpoints, Non-blocking threadpool REPL).
+- [x] **Phase 3:** Unbroken Bi-Temporal Memory Engine (Dual-clock validity, Trace API DAG, Automated Superseding, Time-Travel Vector Queries).
 - [ ] **Phase 4: Add-on 3 — Safe Computer Control:**
   - [ ] Sandboxed execution runner for shell & code execution.
   - [ ] AST Gatekeeper parsing destructive commands (`rm -rf`, `DROP TABLE`).

@@ -33,7 +33,9 @@ def format_context_with_memories(
             val = m.get("value", "")
             sim = m.get("similarity", 0.0)
             m_type = m.get("memory_type", "fact")
-            memory_lines.append(f"• [{m_type.upper()}] {entity} {attr}: {val} (relevance: {int(sim*100)}%)")
+            m_id = str(m.get("id", ""))
+            id_tag = f", id: {m_id}" if m_id else ""
+            memory_lines.append(f"• [{m_type.upper()}] {entity} {attr}: {val} (relevance: {int(sim*100)}%{id_tag})")
 
         memories_block = "\n".join(memory_lines)
         system_content += f"\n\nACTIVE LONG-TERM MEMORIES (Retrieved Context):\n{memories_block}\nUse these memories as foundational truth."

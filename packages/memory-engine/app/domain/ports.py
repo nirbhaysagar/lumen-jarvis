@@ -5,6 +5,7 @@ Defines abstract contracts for storage and embeddings that external adapters mus
 from __future__ import annotations
 from abc import ABC, abstractmethod
 import uuid
+from datetime import datetime
 from typing import Sequence
 from .models import MemoryEvent, CanonicalFact, MemorySearchResult, MemoryType
 
@@ -35,12 +36,24 @@ class StoragePort(ABC):
         threshold: float = 0.5,
         memory_types: Sequence[MemoryType] | None = None,
     ) -> list[MemorySearchResult]:
-        """Perform cosine similarity vector retrieval against canonical facts."""
+        """Perform cosine similarity vector retrieval against currently active canonical facts."""
+        pass
+
+    @abstractmethod
+    async def search_facts_at_time(
+        self,
+        query_embedding: Sequence[float],
+        as_of: datetime,
+        limit: int = 5,
+        threshold: float = 0.01,
+        memory_types: Sequence[MemoryType] | None = None,
+    ) -> list[MemorySearchResult]:
+        """Perform bi-temporal time-travel cosine vector retrieval as of a specific historical timestamp."""
         pass
 
     @abstractmethod
     async def get_fact_trace(self, fact_id: uuid.UUID) -> dict | None:
-        """Retrieve the exact provenance chain (source events) for a given fact."""
+        """Retrieve the exact provenance chain (source events and historical lineage) for a given fact."""
         pass
 
 

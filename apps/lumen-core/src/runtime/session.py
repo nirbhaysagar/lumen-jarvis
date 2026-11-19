@@ -94,6 +94,38 @@ class ConversationSession:
                 yield f"Could not find an active task matching {target_id}."
             return
 
+        if trimmed.startswith("/trace "):
+            fact_id = trimmed.split(" ", 1)[1].strip()
+            trace_data = await self.memory.get_fact_trace(fact_id, trace_id=trace_id)
+            if not trace_data:
+                yield f"Could not find provenance trace for fact ID: {fact_id}."
+                return
+            fact = trace_data["fact"]
+            events = trace_data.get("source_events", [])
+            lineage = trace_data.get("history_lineage", [])
+            
+            lines = [
+                f"🔎 Provenance Trace Graph for Fact [{fact['id']}]",
+                f"• Entity: {fact['entity']} | Attribute: {fact['attribute']}",
+                f"• Active Value: {fact['value']}",
+                f"• Validity Window: {fact['valid_from']} ──► {fact['valid_to'] or 'PRESENT (ACTIVE)'}",
+                "",
+                "📜 Source Utterance Receipts (L0 Events):"
+            ]
+            for e in events:
+                payload = e.get("payload", {})
+                lines.append(f"  └─ [{e['created_at']}] Source: {e['source']} | Content: {payload}")
+                
+            if lineage and len(lineage) > 1:
+                lines.append("")
+                lines.append("⏳ Historical Evolution Lineage (Bi-Temporal Superseding):")
+                for idx, item in enumerate(lineage, 1):
+                    status = "ACTIVE" if item.get("valid_to") is None else f"SUPERSEDED at {item.get('valid_to')}"
+                    lines.append(f"  Version {idx}: {item['value']} [{status}] (from: {item['valid_from']})")
+                    
+            yield "\n".join(lines)
+            return
+
         # 1. Announce any completed or failed background tasks
         notifications = await self.poll_notifications()
         if notifications:

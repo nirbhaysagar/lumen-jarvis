@@ -48,6 +48,7 @@ async def main():
     print("  • /tasks           - List all background tasks and their progress")
     print("  • /spawn <name>    - Spawn an asynchronous background task")
     print("  • /task-cancel <id>- Cooperatively cancel an in-flight task")
+    print("  • /trace <fact_id> - Inspect unbroken provenance graph & source events")
     print("  • /exit or 'exit'  - Quit session\n" + "─" * 60)
 
     while True:
