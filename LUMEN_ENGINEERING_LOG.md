@@ -102,7 +102,7 @@
 
 ### Phase 3: Add-on 2 — Unbroken Bi-Temporal Memory Engine & Provenance (COMPLETED & HARDENED)
 - **Problem Solved:** Standard AI agent systems suffer from destructive amnesia or conflicting context windows when user constraints change. They lack causal lineage (asking *"Why did you do that?"* causes hallucinations).
-- **Architectural Solution:** Bi-Temporal Data Architecture + Directed Acyclic Graph (DAG) Provenance.
+- **Architectural Solution:** Bi-Temporal Data Architecture + Directed Acyclic Graph (DAG) Provenance + Obsidian Knowledge Vault Bridge.
   1. **Dual-Clock Validity:**
      - **Valid Time ($T_v$):** The real-world window during which the fact was true in reality (`valid_from` to `valid_to`).
      - **Transaction Time ($T_t$):** The immutable database timestamp when the record was recorded into the ledger (`created_at`).
@@ -113,19 +113,28 @@
      - If an identical assertion is stated again in conversation, instead of creating duplicate versions, the new source event ID is merged into the existing fact's `source_event_ids` array (`SELECT DISTINCT unnest(...)`).
   4. **Domain Classification:**
      - Conversational preferences are categorized by domain (e.g. `database`, `editor`, `programming_language`, `ui_theme`) so modifying your editor preference never overwrites your database preference.
-  5. **The Trace API (`/api/v1/trace/{fact_id}`):**
+  5. **Context Compaction Engine (`apps/lumen-core/src/compactor/compactor.py`):**
+     - Monitors high watermark (`high_watermark_turns = 6`) and low watermark (`low_watermark_turns = 2`).
+     - Prunes and condenses older conversation turns into episodic narratives, leaving a summary anchor in the active context window.
+     - Manual on-demand compaction via `/compact`.
+  6. **Obsidian Markdown Vault Synchronizer (`apps/lumen-core/src/vault/vault_sync.py`):**
+     - Exports atomic facts to `/Users/forion/Desktop/lumen/vault/memories/` with YAML frontmatter and `[[Wikilinks]]` for instant visualization in Obsidian, Logseq, or Foam.
+     - Flushes compacted episodes into `/vault/episodes/`.
+     - Inspection via `/vault` command in the interactive REPL.
+  7. **The Trace API (`/api/v1/trace/{fact_id}`):**
      - Traverses from derived L1 Canonical Fact back to raw L0 User Utterances via `source_event_ids`.
      - Supports short prefix UUIDs (e.g. `/trace 8496964f`).
      - Returns historical evolution lineage (e.g. Version 1 $\to$ Version 2 $\to$ Version 3), revealing exactly when and why facts were modified.
-  6. **Time-Travel Querying (`/api/v1/memories/time-travel`):**
+  8. **Time-Travel Querying (`/api/v1/memories/time-travel`):**
      - Reconstructs the agent's exact state of mind as of any historical timestamp using bi-temporal range filtering:
        $$\text{valid\_from} \le T_{\text{as\_of}} \quad \text{AND} \quad (\text{valid\_to IS NULL} \lor \text{valid\_to} > T_{\text{as\_of}})$$
-  7. **Normalized Vector Tokenization:**
+  9. **Normalized Vector Tokenization:**
      - Upgraded `DeterministicHashEmbeddingAdapter` with regex word boundary tokenization (`re.findall(r"\w+", text)`), eliminating punctuation-attachment similarity drop-offs and achieving high cosine fidelity ($>0.26$).
 - **Verification & Test Results:**
   - `packages/memory-engine/tests/test_memory_api.py`: 3 passing integration tests in **0.37s**.
-    - `test_bi_temporal_superseding_and_time_travel`: Verified automatic `valid_to` closure, provenance trace DAG, and historical reconstruction where querying $T_{\text{past}}$ returns superseded facts and querying $T_{\text{present}}$ returns active facts.
-  - Interactive REPL command `/trace <fact_id>` verified live against PostgreSQL container.
+  - `apps/lumen-core/tests/test_compactor.py`: 4 passing tests in **0.12s**.
+  - Full suite: **13/13 automated tests green**.
+  - Interactive REPL commands `/trace <id>`, `/vault`, and `/compact` verified live.
 
 ---
 

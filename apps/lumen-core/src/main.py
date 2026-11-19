@@ -49,6 +49,8 @@ async def main():
     print("  • /spawn <name>    - Spawn an asynchronous background task")
     print("  • /task-cancel <id>- Cooperatively cancel an in-flight task")
     print("  • /trace <fact_id> - Inspect unbroken provenance graph & source events")
+    print("  • /compact         - Compact active context and flush episode to Obsidian")
+    print("  • /vault           - View Obsidian knowledge vault sync status")
     print("  • /exit or 'exit'  - Quit session\n" + "─" * 60)
 
     while True:

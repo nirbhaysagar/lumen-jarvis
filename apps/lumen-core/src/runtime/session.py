@@ -7,6 +7,8 @@ import uuid
 from typing import Any, AsyncGenerator, Callable, Coroutine
 from ..concurrency.models import TaskCheckpoint
 from ..concurrency.supervisor import TaskSupervisor
+from ..compactor.compactor import ContextCompactor
+from ..vault.vault_sync import ObsidianVaultSync
 from ..memory_client.client import MemoryServiceClient
 from ..persona.jarvis import format_context_with_memories
 from ..router.model_router import ModelRouter
@@ -35,11 +37,15 @@ class ConversationSession:
         memory_client: MemoryServiceClient | None = None,
         router: ModelRouter | None = None,
         supervisor: TaskSupervisor | None = None,
+        vault_sync: ObsidianVaultSync | None = None,
+        compactor: ContextCompactor | None = None,
     ):
         self.conversation_id = conversation_id or f"conv_{uuid.uuid4().hex[:8]}"
         self.memory = memory_client or MemoryServiceClient()
         self.router = router or ModelRouter()
         self.supervisor = supervisor or TaskSupervisor()
+        self.vault = vault_sync or ObsidianVaultSync()
+        self.compactor = compactor or ContextCompactor(vault_sync=self.vault)
         self.history: list[dict[str, str]] = []
 
     async def spawn_background_task(
@@ -108,6 +114,32 @@ class ConversationSession:
                 yield f"Task {target_id} has been successfully signalled for cooperative termination."
             else:
                 yield f"Could not find an active task matching {target_id}."
+            return
+
+        if trimmed == "/vault":
+            stats = self.vault.get_vault_stats()
+            yield (
+                f"📚 Obsidian Knowledge Vault Status:\n"
+                f"• Vault Path: {self.vault.vault_path}\n"
+                f"• Canonical Memory Notes: {stats['memories']}\n"
+                f"• Compacted Episodes: {stats['episodes']}\n"
+                f"• Total Markdown Cards: {stats['total_notes']}\n\n"
+                f"You can open '{self.vault.vault_path}' in Obsidian to view your visual knowledge graph!"
+            )
+            return
+
+        if trimmed == "/compact":
+            if len(self.history) <= self.compactor.low_watermark_turns:
+                yield "Conversation context is currently minimal. No compaction required, Sir."
+                return
+            old_count = len(self.history)
+            self.history, summary = self.compactor.compact(self.conversation_id, self.history, force=True)
+            yield (
+                f"🧹 Context Compaction Complete:\n"
+                f"• Pruned and condensed {old_count - len(self.history)} older turns.\n"
+                f"• Exported Episode note to: vault/episodes/\n"
+                f"• Active context refreshed with summary anchor."
+            )
             return
 
         if trimmed.startswith("/trace "):
@@ -187,7 +219,7 @@ class ConversationSession:
             event_id = event_res.get("id")
             if event_id:
                 entity, attribute = classify_preference(user_text)
-                await self.memory.save_fact(
+                fact_res = await self.memory.save_fact(
                     entity=entity,
                     attribute=attribute,
                     value=user_text,
@@ -196,3 +228,16 @@ class ConversationSession:
                     epistemic_type="decision",
                     trace_id=trace_id,
                 )
+                if fact_res:
+                    self.vault.export_fact({
+                        "id": fact_res.get("id"),
+                        "entity": entity,
+                        "attribute": attribute,
+                        "value": user_text,
+                        "memory_type": "decision",
+                        "epistemic_type": "decision",
+                    })
+
+        # 8. Automated Context Compaction (Evacuates turns if high watermark is reached)
+        if self.compactor.should_compact(self.history):
+            self.history, _ = self.compactor.compact(self.conversation_id, self.history)
