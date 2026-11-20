@@ -21,6 +21,7 @@ from ..concurrency.models import TaskCheckpoint, CancellationToken
 from ..research.agent import DeepResearchAgent
 from ..voice.gateway import VoiceGateway
 from ..voice.pipeline import VoicePipelineCoordinator
+from ..voice.daemon import WakeWordDaemon
 
 
 def classify_preference(text: str) -> tuple[str, str]:
@@ -77,6 +78,7 @@ class ConversationSession:
         consolidation_daemon: ConsolidationDaemon | None = None,
         research_agent: DeepResearchAgent | None = None,
         voice_gateway: VoiceGateway | None = None,
+        wake_word_daemon: WakeWordDaemon | None = None,
     ):
         self.conversation_id = conversation_id or f"conv_{uuid.uuid4().hex[:8]}"
         self.memory = memory_client or MemoryServiceClient()
@@ -94,6 +96,9 @@ class ConversationSession:
         self.research = research_agent or DeepResearchAgent()
         self.voice = voice_gateway or VoiceGateway(
             coordinator=VoicePipelineCoordinator(turn_handler=self.process_turn)
+        )
+        self.wake_daemon = wake_word_daemon or WakeWordDaemon(
+            coordinator=self.voice.coordinator
         )
         self.history: list[dict[str, str]] = []
 
@@ -537,6 +542,45 @@ class ConversationSession:
                 yield "🎙️ Voice Gateway has been stopped."
             else:
                 yield "Voice Gateway is not currently running."
+            return
+
+        if trimmed == "/listen":
+            if not self.wake_daemon.is_running:
+                try:
+                    await self.wake_daemon.start()
+                    yield (
+                        f"🎙️ [Hands-Free Ambient Wake-Word Active]\n"
+                        f"• Status: Continuous microphone listening engaged\n"
+                        f"• Wake Phrase: Say 'Hey Jarvis' or 'Hey Lumen' to speak\n"
+                        f"• Earcons: Ascending chime on wake, descending chime on sleep\n"
+                        f"• Full-Duplex: Active (Sub-50ms Barge-In enabled)\n"
+                        f"• Idle Timeout: Auto-sleeps after {self.wake_daemon.idle_timeout_sec}s of silence"
+                    )
+                except Exception as e:
+                    yield f"⚠️ Could not start Wake-Word Daemon: {e}"
+            else:
+                yield f"🎙️ Wake-Word Daemon is already listening in state: `{self.wake_daemon.state.value}`."
+            return
+
+        if trimmed == "/listen-status":
+            d = self.wake_daemon
+            yield (
+                f"🎙️ [Hands-Free Wake-Word Status]\n"
+                f"• Daemon State: {d.state.value.upper()}\n"
+                f"• Target Wake Word: {d.detector.model_name}\n"
+                f"• Detection Threshold: {d.detector.threshold:.2f}\n"
+                f"• Total Wake Triggers: {d.triggers_count}\n"
+                f"• Uptime: {d.uptime_seconds:.1f}s\n"
+                f"• Idle Sleep Timeout: {d.idle_timeout_sec}s"
+            )
+            return
+
+        if trimmed == "/listen-stop":
+            if self.wake_daemon.is_running:
+                await self.wake_daemon.stop()
+                yield "🎙️ Hands-Free Wake-Word Daemon stopped. Microphone released."
+            else:
+                yield "Wake-Word Daemon is not currently active."
             return
 
         # 1. Announce any completed or failed background tasks

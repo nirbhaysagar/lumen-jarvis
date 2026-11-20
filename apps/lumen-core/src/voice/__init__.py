@@ -13,6 +13,9 @@ from src.voice.tts import TTSProvider, MockNeuralTTS, AudioOutputPlayer
 from src.voice.stt import STTProvider, MockSTTProvider, WhisperSTTProvider
 from src.voice.pipeline import VoicePipelineCoordinator
 from src.voice.gateway import VoiceGateway
+from src.voice.chime import ChimeGenerator
+from src.voice.wake_word import WakeWordDetector
+from src.voice.daemon import WakeWordDaemon, WakeWordDaemonState
 
 __all__ = [
     "AudioFrame",
@@ -32,4 +35,8 @@ __all__ = [
     "WhisperSTTProvider",
     "VoicePipelineCoordinator",
     "VoiceGateway",
+    "ChimeGenerator",
+    "WakeWordDetector",
+    "WakeWordDaemon",
+    "WakeWordDaemonState",
 ]

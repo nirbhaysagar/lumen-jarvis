@@ -17,7 +17,7 @@
 | **Phase 4** | Safe Computer Control ("The Hands") | **COMPLETE** | Multi-Layered Defense (Pipeline Splitter, Python AST, Credential Sentinel, Env Scrubbing) | Automated security tests (0.53s, 15 tests passed), Live REPL `/exec` verified |
 | **Phase 5** | Knowledge Graph, Review Queue & Hybrid Retrieval | **COMPLETE** | 3-Table Schema (entities, triples, predicates), Two-Tier Entity Resolver, Review Queue Contradiction Gating, Transactional Outbox Pattern, Overnight Consolidation Daemon, Unified Hybrid RRF Search | Automated test suite (49/49 tests passed), Live REPL `/search`, `/consolidate`, `/digest`, `/outbox`, `/proposals`, `/graph` verified |
 | **Phase 6** | Autonomous Web & Deep Research ("The Eyes") | **COMPLETE** | Query De-Optimizer, Multi-Source Discovery (Web, HN Algolia, Reddit, arXiv), Anti-SEO Citation Walking, Prompt Injection Shield, Crawl4AI + MarkItDown, Obsidian Research Dossiers | Automated test suite (63/63 tests passed), Live REPL `/research`, `/dossiers`, `/dossier` verified |
-| **Phase 7** | Voice & Barge-in Gateway ("The Senses") | **COMPLETE** | Full-duplex WebSocket (`ws://0.0.0.0:8765/voice`), Silero VAD, EchoGate dynamic modulation, sub-50ms Barge-In Preemption, Syntactic Clause Chunking, Whisper STT + Neural TTS | Automated voice test suite (10/10 passed), Monorepo 77/77 tests green |
+| **Phase 7** | Voice & Barge-in Gateway ("The Senses") | **COMPLETE** | Full-duplex WebSocket (`ws://0.0.0.0:8765/voice`), Silero VAD, EchoGate dynamic modulation, sub-50ms Barge-In Preemption, Syntactic Clause Chunking, Whisper STT + Neural TTS, Hands-Free openWakeWord Daemon ("Hey Jarvis") + Hann Acoustic Chimes | Automated test suite (15 voice/wake tests passed), Monorepo 82/82 tests green |
 
 ---
 
@@ -38,6 +38,7 @@
 | **ADR-011** | Multi-Surface Deep Research & Anti-SEO Graph Exploration | Query De-Optimization + Multi-Source Discovery (DuckDuckGo, Hacker News Algolia, Reddit, arXiv) + Recursive Semantic Citation Traversal ($d \ge 1$) + Prompt Injection Shielding | Commercial top-5 scraping alone, Unfiltered raw HTML ingestion | Escapes commercial SEO spam farms; uncovers buried practitioner debates and primary science; protects reasoning loop from indirect prompt injection; binds findings into Knowledge Graph and Obsidian Vault. |
 | **ADR-012** | Defense-in-Depth Security Hardening & Zero-Trust Crawling | Line-aware AST Lexer + SSRFGuard (IP/DNS/Redirect Gating) + Stream Ceilings (25MB) + DefusedXML + Vault Path Traversal Invariants | Naive regex-only matching, Unchecked HTTP redirects, Trusting local paths | Neutralizes multi-line shell injection delimiter evasion, eliminates SSRF/cloud metadata leaks, prevents memory exhaustion DoS, prevents XML entity expansion, and strictly confines note generation within vault root. |
 | **ADR-013** | Sub-Second Full-Duplex Voice Gateway, Echo Gate & Sub-50ms Barge-In Preemption | Discrete 16kHz PCM Framing + Silero VAD + Dynamic EchoGate ($\tau: 0.50 \to 0.85$, $E: -45 \to -28\text{ dBFS}$) + Syntactic Clause Chunker + Immediate Preemption Queue Flushing | Half-duplex turn-taking, Cloud monolithic audio APIs, Blind client-side VAD | Delivers natural conversational cadence with sub-250ms Time-to-First-Audio (TTFA); prevents Lumen from cutting himself off on his own speaker playback; preempts LLM generation and output audio in under 50ms upon genuine user speech onset. |
+| **ADR-014** | Ambient Hands-Free Wake-Word Daemon, openWakeWord Neural Model & Earcon Chimes | Two-State Ambient Machine (`DORMANT_LISTENING` vs `ACTIVE_CONVERSATION`) + Low-Power ONNX Model (`hey_jarvis`, 1280 samples / 80ms) + Hann-Enveloped Synthesized Chimes (Ascending D5 $\to$ A5, Descending A5 $\to$ D5) + Automatic Idle Silence Watchdog | Continuous cloud STT streaming, OS hotkeys alone | True hands-free ambient computing at <2% CPU usage without privacy exposure or battery exhaustion; provides crisp acoustic feedback earcons without external audio assets. |
 
 ---
 
@@ -353,9 +354,19 @@
   7. **Full-Duplex Coordinator & WebSocket Gateway (`pipeline.py`, `gateway.py`):**
      - Streaming bidirectional WebSocket server (`ws://0.0.0.0:8765/voice`) accepting 16-bit PCM binary frames and emitting synthesized audio frames and JSON telemetry.
      - REPL slash commands: `/voice` (launch server), `/voice-status` (real-time telemetry & latency), `/voice-stop`.
+  8. **Hands-Free Ambient Wake-Word Daemon & Acoustic Earcon Chimes (`wake_word.py`, `chime.py`, `daemon.py`):**
+     - Two-State Ambient Machine (`DORMANT_LISTENING` $\longleftrightarrow$ `ACTIVE_CONVERSATION`).
+     - Real-time neural openWakeWord model (`hey_jarvis`, 1280-sample / 80ms inference blocks) running on macOS microphone capture via `sounddevice` at $<2\%$ CPU.
+     - Synthesized pure harmonic acoustic earcons (Hann window envelope shaped):
+       - Wake Chime: Ascending two-tone chirp ($D_5: 587.33\text{ Hz} \to A_5: 880.00\text{ Hz}$, 220ms).
+       - Sleep Chime: Descending two-tone dismissal ($A_5: 880.00\text{ Hz} \to D_5: 587.33\text{ Hz}$, 220ms).
+       - Barge-In Ping: Crisp acoustic pulse ($C_6: 1046.50\text{ Hz}$, 35ms).
+     - Auto-sleep watchdog: safely returns to dormant listening after 10s of ambient silence.
+     - REPL commands: `/listen`, `/listen-status`, `/listen-stop`.
 - **Verification & Test Results:**
-  - `apps/lumen-core/tests/test_voice_pipeline.py`: 10 passing tests in **0.49s** (framing, DSP, EchoGate modulation, VAD state machine, barge-in preemption, syntactic chunking, STT WAV serialization, WebSocket gateway, mid-generation preemption).
-  - Monorepo test suite: **77/77 automated tests green (100%)** (61 `lumen-core`, 16 `memory-engine`).
+  - `apps/lumen-core/tests/test_voice_pipeline.py`: 10 passing tests in **0.49s**.
+  - `apps/lumen-core/tests/test_wake_word_daemon.py`: 5 passing tests in **2.37s** (chime synthesis, refractory period gating, neural ONNX inference, state transitions, speech watchdog refreshing).
+  - Monorepo test suite: **82/82 automated tests green (100%)** (66 `lumen-core`, 16 `memory-engine`).
 
 ---
 
@@ -389,4 +400,6 @@
   - [x] Sub-50ms Barge-In Preemption Coordinator with atomic buffer flush and LLM cancellation.
   - [x] Syntactic Clause Chunker for prosodically natural speech and sub-250ms TTFA.
   - [x] Streaming STT (Whisper WAV container & Groq/OpenAI cloud integration) + Neural TTS synthesis.
-  - [x] Terminal REPL integration (`/voice`, `/voice-status`, `/voice-stop`).
+  - [x] openWakeWord hands-free ambient activation ("Hey Jarvis" / "Hey Lumen") with sounddevice mic capture.
+  - [x] Acoustic Earcon Chime synthesis (Hann window shaped ascending wake and descending sleep earcons).
+  - [x] Terminal REPL integration (`/voice`, `/voice-status`, `/voice-stop`, `/listen`, `/listen-status`, `/listen-stop`).
