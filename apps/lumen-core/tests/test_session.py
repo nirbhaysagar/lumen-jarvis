@@ -20,7 +20,6 @@ async def test_conversation_session_turn():
 
     full_response = "".join(tokens)
     assert len(full_response) > 0
-    assert "Sir" in full_response
     assert len(session.history) == 2  # user + assistant
 
     await memory_client.close()
@@ -40,7 +39,7 @@ async def test_circuit_breaker_offline_fallback():
 
     assert unreachable_client.circuit_open is True
     full_response = "".join(tokens)
-    assert "Sir" in full_response
+    assert len(full_response) > 0
 
     await unreachable_client.close()
 

@@ -125,6 +125,7 @@ class ModelRouter:
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 async with client.stream(
+                    "POST",
                     base_url,
                     headers={
                         "Authorization": f"Bearer {api_key}",
@@ -191,7 +192,7 @@ class ModelRouter:
 
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                async with client.stream(url, json=payload) as response:
+                async with client.stream("POST", url, json=payload) as response:
                     if response.status_code != 200:
                         err = await response.aread()
                         yield f"[Gemini Error: {err.decode()}]"

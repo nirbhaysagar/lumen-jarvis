@@ -5,7 +5,10 @@ import wave
 from abc import ABC, abstractmethod
 from typing import List, Optional
 import httpx
+from dotenv import find_dotenv, load_dotenv
 from src.voice.models import AudioFrame
+
+load_dotenv(find_dotenv(usecwd=True))
 
 
 class STTProvider(ABC):
