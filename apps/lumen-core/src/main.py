@@ -51,6 +51,9 @@ async def main():
     else:
         print("Cognitive Engine: Local JARVIS Offline Protocol (Add OPENAI_API_KEY or GROQ_API_KEY to .env for live LLM generation).")
     print("Commands:")
+    print("  • /voice           - Launch Sub-Second Voice Gateway ('The Senses' on ws://...)")
+    print("  • /voice-status    - View real-time voice latency & barge-in metrics")
+    print("  • /voice-stop      - Stop running voice gateway")
     print("  • /research <topic> - Autonomous Multi-Source Deep Research ('The Eyes')")
     print("  • /dossiers        - List generated intelligence dossiers in Obsidian Vault")
     print("  • /dossier <name>  - View research dossier findings, quotes & citations")
@@ -104,6 +107,7 @@ async def main():
             print("\nInterrupt received. Good day, Sir.")
             break
 
+    await session.voice.stop()
     await session.consolidation.stop()
     await outbox_worker.stop()
     await supervisor.shutdown()

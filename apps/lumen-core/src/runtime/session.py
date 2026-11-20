@@ -19,6 +19,8 @@ from ..router.model_router import ModelRouter
 from ..consolidation.daemon import ConsolidationDaemon
 from ..concurrency.models import TaskCheckpoint, CancellationToken
 from ..research.agent import DeepResearchAgent
+from ..voice.gateway import VoiceGateway
+from ..voice.pipeline import VoicePipelineCoordinator
 
 
 def classify_preference(text: str) -> tuple[str, str]:
@@ -74,6 +76,7 @@ class ConversationSession:
         approvals: ApprovalManager | None = None,
         consolidation_daemon: ConsolidationDaemon | None = None,
         research_agent: DeepResearchAgent | None = None,
+        voice_gateway: VoiceGateway | None = None,
     ):
         self.conversation_id = conversation_id or f"conv_{uuid.uuid4().hex[:8]}"
         self.memory = memory_client or MemoryServiceClient()
@@ -89,6 +92,9 @@ class ConversationSession:
             supervisor=self.supervisor,
         )
         self.research = research_agent or DeepResearchAgent()
+        self.voice = voice_gateway or VoiceGateway(
+            coordinator=VoicePipelineCoordinator(turn_handler=self.process_turn)
+        )
         self.history: list[dict[str, str]] = []
 
     async def spawn_background_task(
@@ -491,6 +497,46 @@ class ConversationSession:
                     lines.append(f"  Version {idx}: {item['value']} [{status}] (from: {item['valid_from']})")
                     
             yield "\n".join(lines)
+            return
+
+        if trimmed == "/voice-status":
+            m = self.voice.coordinator.metrics
+            running_str = f"RUNNING on ws://{self.voice.host}:{self.voice.port}/voice" if self.voice._is_running else "STANDBY"
+            yield (
+                f"🎙️ [Voice Gateway & Barge-In Metrics]\n"
+                f"• Server Status: {running_str}\n"
+                f"• Total Audio Frames Processed: {m.total_frames_processed}\n"
+                f"• Speech Frames Detected: {m.speech_frames_detected}\n"
+                f"• Sub-50ms Barge-In Events: {m.barge_in_events}\n"
+                f"• Average VAD Latency: {m.average_vad_latency_ms:.2f}ms\n"
+                f"• Time-To-First-Audio (TTFA): {m.time_to_first_audio_ms:.2f}ms\n"
+                f"• Active Output Queue: {self.voice.coordinator.player.queued_frames_count} frames"
+            )
+            return
+
+        if trimmed == "/voice":
+            if not self.voice._is_running:
+                try:
+                    await self.voice.start()
+                    yield (
+                        f"🎙️ Sub-Second Voice Gateway is now ACTIVE!\n"
+                        f"• Listening on: `ws://{self.voice.host}:{self.voice.port}/voice`\n"
+                        f"• Protocol: Bidirectional 16-bit 16kHz Linear PCM\n"
+                        f"• Barge-In: Active (preempts LLM and TTS under 50ms upon speech onset)\n"
+                        f"• Echo Gate: Dynamic sensitivity modulation active"
+                    )
+                except Exception as e:
+                    yield f"⚠️ Could not start Voice Gateway: {e}"
+            else:
+                yield f"🎙️ Voice Gateway is already running at `ws://{self.voice.host}:{self.voice.port}/voice`."
+            return
+
+        if trimmed == "/voice-stop":
+            if self.voice._is_running:
+                await self.voice.stop()
+                yield "🎙️ Voice Gateway has been stopped."
+            else:
+                yield "Voice Gateway is not currently running."
             return
 
         # 1. Announce any completed or failed background tasks
