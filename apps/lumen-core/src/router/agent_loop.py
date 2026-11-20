@@ -60,7 +60,7 @@ AGENT_TOOLS = [
                 "using Pandas and Matplotlib in a persistent kernel. Invoke whenever the user asks to plot, graph, chart, visualize, "
                 "or analyze numbers, statistics, revenue trajectories, or visual trends — even if they say 'research and graph' or 'find data and plot', "
                 "because analyst_engine performs live web research automatically. Do NOT call deep_research when a graph, plot, or chart is requested. "
-                "DO NOT invoke for dramatic, literary, or narrative plotting (e.g. 'plot of Hamlet', 'plot a novel or narrative arc') — "
+                "DO NOT invoke for dramatic, literary, narrative, or conspiracy plots (e.g. 'plot of Hamlet', 'plot a novel or narrative arc', 'plot to overthrow the king', 'political plot') — "
                 "only invoke for numeric, mathematical, or empirical data analysis."
             ),
             "parameters": {

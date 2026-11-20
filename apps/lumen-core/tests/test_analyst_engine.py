@@ -29,7 +29,8 @@ class MockSearchEngine:
 
 class MockResearchAgent:
     def __init__(self):
-        self.search_engine = MockSearchEngine()
+        self.discovery = MockSearchEngine()
+        self.search_engine = self.discovery
 
 
 @pytest.mark.asyncio

@@ -53,6 +53,7 @@ class ModelRouter:
         tool_choice: Optional[str] = None,
         temperature: float = 0.1,
         model: Optional[str] = None,
+        max_tokens: Optional[int] = None,
     ) -> dict[str, Any]:
         """
         Executes a single conversational completion with optional structured tool calls.
@@ -63,7 +64,7 @@ class ModelRouter:
 
         # 1. Groq Fast-Path (<100ms latency)
         if provider == "groq" and self.groq_key:
-            selected_model = model or os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+            selected_model = model or os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
             return await self._create_openai_compatible(
                 base_url="https://api.groq.com/openai/v1/chat/completions",
                 api_key=self.groq_key,
@@ -72,6 +73,7 @@ class ModelRouter:
                 tools=tools,
                 tool_choice=tool_choice,
                 temperature=temperature,
+                max_tokens=max_tokens,
             )
 
         # 2. OpenAI Standard Path
@@ -85,6 +87,7 @@ class ModelRouter:
                 tools=tools,
                 tool_choice=tool_choice,
                 temperature=temperature,
+                max_tokens=max_tokens,
             )
 
         # 3. Offline Fallback
@@ -99,11 +102,14 @@ class ModelRouter:
         tools: Optional[List[dict[str, Any]]],
         tool_choice: Optional[str],
         temperature: float,
+        max_tokens: Optional[int] = None,
     ) -> dict[str, Any]:
+        target_tokens = max_tokens or 1024
         payload: dict[str, Any] = {
             "model": model,
             "messages": list(messages),
             "temperature": temperature,
+            "max_tokens": min(target_tokens, 800) if "qwen" in model else target_tokens,
         }
         if tools:
             payload["tools"] = tools
@@ -114,22 +120,41 @@ class ModelRouter:
             "Content-Type": "application/json",
         }
 
+        fallback_models = []
+        if "groq.com" in base_url:
+            groq_candidates = ["openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
+            fallback_models = [m for m in groq_candidates if m != model]
+
+        models_to_try = [model] + fallback_models
+
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                res = await client.post(base_url, headers=headers, json=payload)
-                if res.status_code == 200:
-                    data = res.json()
-                    choice = data.get("choices", [{}])[0].get("message", {})
-                    return {
-                        "role": "assistant",
-                        "content": choice.get("content") or "",
-                        "tool_calls": choice.get("tool_calls") or [],
-                    }
-                elif res.status_code == 429:
-                    logger.warning(f"Groq {model} rate limited (429). Attempting fast failover & exponential backoff...")
-                    payload["model"] = "openai/gpt-oss-20b"
-                    for attempt in range(1, 4):
-                        await asyncio.sleep(attempt * 1.5)
+                for idx, attempt_model in enumerate(models_to_try):
+                    payload["model"] = attempt_model
+                    payload["max_tokens"] = min(target_tokens, 800) if "qwen" in attempt_model else target_tokens
+                    res = await client.post(base_url, headers=headers, json=payload)
+                    if res.status_code == 200:
+                        data = res.json()
+                        choice = data.get("choices", [{}])[0].get("message", {})
+                        return {
+                            "role": "assistant",
+                            "content": choice.get("content") or "",
+                            "tool_calls": choice.get("tool_calls") or [],
+                        }
+                    elif res.status_code in (429, 500, 502, 503):
+                        wait_sec = 2.0
+                        retry_after = res.headers.get("retry-after")
+                        if retry_after:
+                            try:
+                                wait_sec = min(float(retry_after), 5.0)
+                            except ValueError:
+                                wait_sec = 2.0
+                        logger.warning(
+                            f"Model {attempt_model} returned {res.status_code}. "
+                            f"Waiting {wait_sec:.1f}s before retry..."
+                        )
+                        await asyncio.sleep(wait_sec)
+                        # Retry current model once after backoff before failing over
                         retry_res = await client.post(base_url, headers=headers, json=payload)
                         if retry_res.status_code == 200:
                             data = retry_res.json()
@@ -139,11 +164,15 @@ class ModelRouter:
                                 "content": choice.get("content") or "",
                                 "tool_calls": choice.get("tool_calls") or [],
                             }
-                    logger.error(f"Provider Error after retries: {res.text}")
-                    return await self._create_offline_completion(messages, tools)
-                else:
-                    logger.error(f"Provider Error {res.status_code}: {res.text}")
-                    return await self._create_offline_completion(messages, tools)
+                        if idx < len(models_to_try) - 1:
+                            logger.info(f"Failing over from {attempt_model} to {models_to_try[idx + 1]}...")
+                            continue
+                        logger.error(f"Provider Error {res.status_code} on {attempt_model} after retry: {retry_res.text}")
+                        break
+                    else:
+                        logger.error(f"Provider Error {res.status_code} on {attempt_model}: {res.text}")
+                        break
+                return await self._create_offline_completion(messages, tools)
         except Exception as e:
             logger.error(f"Error calling {base_url}: {e}")
             return await self._create_offline_completion(messages, tools)
@@ -168,7 +197,22 @@ class ModelRouter:
                 break
 
         lowered = last_msg.lower()
-        if tools and any(kw in lowered for kw in ["graph", "chart", "plot", "revenue", "analytics"]) and not any(h in lowered for h in ["hamlet", "story", "novel"]):
+        is_narrative_or_conspiracy = any(
+            h in lowered
+            for h in [
+                "hamlet", "story", "novel", "narrative", "overthrow",
+                "king", "conspiracy", "coup", "scheme", "treason", "assassination"
+            ]
+        )
+        is_chart_intent = (
+            any(kw in lowered for kw in ["graph", "chart", "visualize", "trajectory", "analytics"])
+            or (
+                "plot" in lowered
+                and any(n in lowered for n in ["revenue", "growth", "data", "metric", "sales", "gdp", "statistic", "curve", "distribution", "trend", "points", "annual", "vs", "versus"])
+                and not is_narrative_or_conspiracy
+            )
+        )
+        if tools and is_chart_intent and not is_narrative_or_conspiracy:
             return {
                 "role": "assistant",
                 "content": "",
@@ -194,6 +238,7 @@ class ModelRouter:
         messages: Sequence[dict[str, str]],
         model: str | None = None,
         temperature: float = 0.6,
+        max_tokens: int | None = None,
     ) -> AsyncGenerator[str, None]:
         """
         Streams LLM tokens token-by-token.
@@ -205,13 +250,14 @@ class ModelRouter:
 
         # 1. Groq Fast-Path (<150ms latency)
         if provider == "groq" and self.groq_key:
-            selected_model = model or os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+            selected_model = model or os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
             async for token in self._stream_openai_compatible(
                 base_url="https://api.groq.com/openai/v1/chat/completions",
                 api_key=self.groq_key,
                 model=selected_model,
                 messages=messages,
                 temperature=temperature,
+                max_tokens=max_tokens,
             ):
                 yield token
             return
@@ -225,6 +271,7 @@ class ModelRouter:
                 model=selected_model,
                 messages=messages,
                 temperature=temperature,
+                max_tokens=max_tokens,
             ):
                 yield token
             return
@@ -264,47 +311,64 @@ class ModelRouter:
         model: str,
         messages: Sequence[dict[str, str]],
         temperature: float,
+        max_tokens: int | None = None,
     ) -> AsyncGenerator[str, None]:
+        target_tokens = max_tokens or 1024
+        fallback_models = []
+        if "groq.com" in base_url:
+            groq_candidates = ["openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
+            fallback_models = [m for m in groq_candidates if m != model]
+
+        models_to_try = [model] + fallback_models
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                async with client.stream(
-                    "POST",
-                    base_url,
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": model,
+                for idx, attempt_model in enumerate(models_to_try):
+                    payload = {
+                        "model": attempt_model,
                         "messages": messages,
                         "temperature": temperature,
+                        "max_tokens": min(target_tokens, 800) if "qwen" in attempt_model else target_tokens,
                         "stream": True,
-                    },
-                ) as response:
-                    if response.status_code != 200:
-                        err_body = await response.aread()
-                        yield f"[Provider Error {response.status_code}: {err_body.decode('utf-8', errors='ignore')}]"
-                        return
-
-                    async for line in response.aiter_lines():
-                        if line.startswith("data: "):
-                            data_str = line[6:].strip()
-                            if data_str == "[DONE]":
-                                break
-                            try:
-                                chunk = json.loads(data_str)
-                                choices = chunk.get("choices", [])
-                                if choices:
-                                    delta = choices[0].get("delta", {}).get("content", "")
-                                    if delta:
-                                        yield delta
-                            except Exception:
-                                continue
+                    }
+                    async with client.stream("POST", base_url, headers=headers, json=payload) as response:
+                        if response.status_code == 200:
+                            async for line in response.aiter_lines():
+                                if line.startswith("data: "):
+                                    data_str = line[6:].strip()
+                                    if data_str == "[DONE]":
+                                        break
+                                    try:
+                                        chunk = json.loads(data_str)
+                                        choices = chunk.get("choices", [])
+                                        if choices:
+                                            delta = choices[0].get("delta", {}).get("content", "")
+                                            if delta:
+                                                yield delta
+                                    except Exception:
+                                        continue
+                            return
+                        elif response.status_code in (429, 500, 502, 503) and idx < len(models_to_try) - 1:
+                            err_body = await response.aread()
+                            logger.warning(
+                                f"Model {attempt_model} returned {response.status_code} ({err_body.decode(errors='ignore')[:120]}). "
+                                f"Failing over to {models_to_try[idx + 1]}..."
+                            )
+                            continue
+                        else:
+                            err_body = await response.aread()
+                            logger.error(f"Provider Error {response.status_code} on {attempt_model}: {err_body.decode(errors='ignore')}")
+                            break
         except Exception as e:
             logger.error(f"Streaming error on {base_url}: {e}")
-            yield f"\n[Communication Fault with LLM endpoint: {e}. Switching to offline protocol.]\n\n"
-            async for token in self._stream_local_jarvis_persona(messages):
-                yield token
+
+        logger.warning(f"All streaming models exhausted for {base_url}. Falling back to offline cognitive engine.")
+        async for token in self._stream_local_jarvis_persona(messages):
+            yield token
 
     async def _stream_gemini(
         self,

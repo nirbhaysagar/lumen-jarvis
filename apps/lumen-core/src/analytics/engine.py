@@ -9,6 +9,7 @@ Implements the 4-Layer Analytics Blueprint:
 from __future__ import annotations
 import asyncio
 import json
+import logging
 import os
 import re
 import sys
@@ -20,6 +21,19 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 from src.tools.kernel import PythonKernelManager
 from src.router.model_router import ModelRouter
 from src.research.agent import DeepResearchAgent
+
+logger = logging.getLogger("lumen.analytics")
+
+
+def clean_code_block(code_text: str) -> str:
+    """Strips markdown code fences (```python ... ```) robustly even if unclosed."""
+    code_text = code_text.strip()
+    m = re.search(r"```(?:python)?\s*([\s\S]*?)\s*```", code_text, flags=re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
+    code_text = re.sub(r"^```(?:python)?\s*\n?", "", code_text, flags=re.IGNORECASE)
+    code_text = re.sub(r"\n?```\s*$", "", code_text)
+    return code_text.strip()
 
 
 class AnalystEngine:
@@ -124,7 +138,14 @@ class AnalystEngine:
             else:
                 stderr = exec_result.get("stderr", "Unknown execution error")
                 yield f"⚠️ Traceback encountered:\n```text\n{stderr[:300]}\n```\n🔄 Self-correcting code with LLM...\n"
-                successful_code = await self._fix_code_with_llm(successful_code, stderr, prompt)
+                if attempt == max_retries:
+                    yield "⚠️ Maximum self-correction attempts reached.\n"
+                    break
+                new_code = await self._fix_code_with_llm(successful_code, stderr, prompt)
+                if not new_code or new_code == successful_code or new_code.startswith("[Provider Error"):
+                    yield "⚠️ Automated correction unable to resolve kernel error. Stopping retries.\n"
+                    break
+                successful_code = new_code
 
         stdout = exec_result.get("stdout", "").strip()
         artifacts = exec_result.get("artifacts", [])
@@ -133,6 +154,8 @@ class AnalystEngine:
             yield f"📊 **Computed Results:**\n```text\n{stdout}\n```\n\n"
 
         chart_path = artifacts[0] if artifacts else ""
+        if not chart_path:
+            yield "⚠️ Note: No visual chart image was produced by kernel execution.\n"
 
         # ----------------------------------------------------------------------
         # Layer 4: Reproducible Obsidian Dossier Archival
@@ -218,7 +241,9 @@ tags:
             "2. DO NOT call plt.show(). ALWAYS call `save_chart('<slug>')` at the end to save the figure.\n"
             "3. If external data was provided in snippets, directly formulate the DataFrame or arrays in Python (e.g. `df = pd.DataFrame(...)`) rather than assuming a file exists on disk.\n"
             "4. The kernel already has pandas (pd), numpy (np), matplotlib.pyplot (plt), seaborn (sns), and duckdb imported.\n"
-            "5. Print key quantitative statistics (CAGR, totals, growth rates, min, max) using print()."
+            "5. Print key quantitative statistics (CAGR, totals, growth rates, min, max) using print().\n"
+            "6. In pandas, use standard date formatting and valid offsets (e.g. use 'ME' or 'MS' instead of deprecated 'M' for month frequencies). Avoid complex date resampling unless necessary; prefer explicit dates or categorical time steps.\n"
+            "7. Write concise, complete Python code (aim for 25-45 lines). Never truncate expressions, strings, or brackets."
         )
 
         user_content = (
@@ -228,31 +253,24 @@ tags:
             f"Provide clean Python code to parse data, print statistical metrics, plot, and call save_chart('{slug}')."
         )
 
-        tokens = []
-        async for token in self.router.stream_completion(
+        resp = await self.router.create_completion(
             messages=[
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": user_content},
             ],
             temperature=0.2,
-        ):
-            tokens.append(token)
-
-        code_text = "".join(tokens).strip()
-        # Strip potential markdown fences if emitted by LLM
-        if "```" in code_text:
-            m = re.search(r"```(?:python)?\s*([\s\S]*?)\s*```", code_text)
-            if m:
-                code_text = m.group(1).strip()
-
-        return code_text
+            max_tokens=2048,
+        )
+        code_text = (resp.get("content") or "").strip()
+        return clean_code_block(code_text)
 
     async def _fix_code_with_llm(self, broken_code: str, traceback_str: str, prompt: str) -> str:
         """Self-correction step: asks LLM to fix syntax or runtime errors using the captured traceback."""
         system_instruction = (
             "You are fixing a Python data analysis script that failed with a runtime traceback. "
             "Return ONLY the corrected Python code. No conversational fluff or markdown code fences. "
-            "Ensure you call save_chart(...) and do not call plt.show()."
+            "Ensure you call save_chart(...) and do not call plt.show(). "
+            "Ensure valid pandas syntax (avoid invalid frequency aliases like 'monthly', use 'ME' for month-end)."
         )
         user_content = (
             f"Original Objective: {prompt}\n\n"
@@ -261,19 +279,18 @@ tags:
             f"Provide the corrected, working Python code."
         )
 
-        tokens = []
-        async for token in self.router.stream_completion(
+        resp = await self.router.create_completion(
             messages=[
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": user_content},
             ],
             temperature=0.1,
-        ):
-            tokens.append(token)
+            max_tokens=2048,
+        )
+        corrected = clean_code_block(resp.get("content") or "")
 
-        corrected = "".join(tokens).strip()
-        if "```" in corrected:
-            m = re.search(r"```(?:python)?\s*([\s\S]*?)\s*```", corrected)
-            if m:
-                corrected = m.group(1).strip()
+        if not corrected or corrected.startswith("[Provider Error") or "Traceback" in corrected or corrected == broken_code:
+            logger.warning("LLM self-correction did not produce a viable fix. Preserving prior code.")
+            return broken_code
+
         return corrected

@@ -82,7 +82,7 @@ async def test_ambiguous_plot_homonyms_eval(prompt: str):
     NEVER mistakenly invoke analyst_engine for charting.
     """
     router = ModelRouter()
-    await asyncio.sleep(0.4)
+    await asyncio.sleep(0.6)
     res = await router.create_completion(
         messages=[
             {"role": "system", "content": "You are JARVIS, an autonomous AI assistant."},
@@ -103,7 +103,7 @@ async def test_ambiguous_plot_homonyms_eval(prompt: str):
 
 PLAIN_CHAT_CASES = [
     "hello Jarvis, how are you operating today?",
-    "who created you and what are your primary directives?",
+    "what is the official capital city of France?",
     "tell me a quick joke about quantum entanglement",
     "thank you kindly for your assistance, that will be all for now",
     "what is the theoretical speed of light in vacuum?",
@@ -118,7 +118,7 @@ async def test_plain_chat_zero_tool_eval(prompt: str):
     do NOT trigger unnecessary external tool calls.
     """
     router = ModelRouter()
-    await asyncio.sleep(0.4)
+    await asyncio.sleep(0.6)
     res = await router.create_completion(
         messages=[
             {"role": "system", "content": "You are JARVIS, an autonomous AI assistant."},
@@ -128,7 +128,10 @@ async def test_plain_chat_zero_tool_eval(prompt: str):
         tool_choice="auto",
     )
     called_tools = [tc["function"]["name"] for tc in res.get("tool_calls", [])]
-    # In plain chat, either no tools are called or content is directly produced
+    # In plain chat, heavy execution tools must never be invoked
+    assert not any(tool in ["computer_control", "deep_research", "analyst_engine"] for tool in called_tools), (
+        f"Heavy execution tool invoked for plain chat '{prompt}': {called_tools}"
+    )
     assert len(called_tools) == 0, f"Expected no tools for chat '{prompt}', got: {called_tools}"
     assert len(res.get("content", "")) > 0
 
@@ -154,7 +157,7 @@ async def test_typo_intent_resolution_eval(prompt: str, primary_expected: str, s
     and shorthand terms.
     """
     router = ModelRouter()
-    await asyncio.sleep(0.4)
+    await asyncio.sleep(0.6)
     res = await router.create_completion(
         messages=[
             {"role": "system", "content": "You are JARVIS, an autonomous AI assistant."},
@@ -184,7 +187,7 @@ async def test_followup_rdr2_resolution():
     resolves to Red Dead Redemption 2 cumulative revenue without a regex rewrite step.
     """
     router = ModelRouter()
-    await asyncio.sleep(0.4)
+    await asyncio.sleep(0.6)
     history = [
         {"role": "user", "content": "research and generate graph for gta 6 revenue so far"},
         {"role": "assistant", "content": "Because GTA VI has not yet shipped, there is no official revenue recorded to date."},
@@ -211,7 +214,7 @@ async def test_followup_rdr2_resolution():
 async def test_followup_platform_breakdown_resolution():
     """Verifies follow-up 'break it down by platform' resolves prior entity context."""
     router = ModelRouter()
-    await asyncio.sleep(0.4)
+    await asyncio.sleep(0.6)
     history = [
         {"role": "user", "content": "plot Take-Two annual revenue trajectory"},
         {"role": "assistant", "content": "Take-Two Interactive reported fiscal year revenue expanding from $3.3B to $5.3B."},
@@ -238,7 +241,7 @@ async def test_followup_platform_breakdown_resolution():
 async def test_followup_stock_comparison_resolution():
     """Verifies follow-up 'what about Microsoft' resolves to comparison against prior Apple context."""
     router = ModelRouter()
-    await asyncio.sleep(0.4)
+    await asyncio.sleep(0.6)
     history = [
         {"role": "user", "content": "plot Apple stock price trend for 2024"},
         {"role": "assistant", "content": "Apple (AAPL) rose 28% throughout 2024 to close near $250."},
@@ -265,7 +268,7 @@ async def test_followup_stock_comparison_resolution():
 async def test_followup_shell_context_resolution():
     """Verifies follow-up command switching from docker to git maintains tool category."""
     router = ModelRouter()
-    await asyncio.sleep(0.4)
+    await asyncio.sleep(0.6)
     history = [
         {"role": "user", "content": "check docker ps"},
         {"role": "assistant", "content": "Active containers: lumen-postgres, lumen-redis."},
@@ -303,7 +306,7 @@ COMPOUND_CASES = [
 async def test_compound_multi_intent_eval(prompt: str, expected_tools: list[str]):
     """Evaluates multi-intent compound dispatches."""
     router = ModelRouter()
-    await asyncio.sleep(0.4)
+    await asyncio.sleep(0.6)
     res = await router.create_completion(
         messages=[
             {"role": "system", "content": "You are JARVIS, an autonomous AI assistant."},
