@@ -28,6 +28,7 @@ from ..voice.stt import WhisperSTTProvider, MockSTTProvider
 from ..voice.tts import NativeMacTTS, MockNeuralTTS
 from ..sentinel.daemon import SentinelDaemon
 from ..analytics.engine import AnalystEngine
+from ..router.agent_loop import LumenAgentLoop
 
 
 def classify_preference(text: str) -> tuple[str, str]:
@@ -116,6 +117,7 @@ class ConversationSession:
         )
         self.sentinel = sentinel_daemon or SentinelDaemon(vault_sync=self.vault)
         self.analyst = analyst_engine or AnalystEngine(router=self.router, research_agent=self.research)
+        self.agent_loop = LumenAgentLoop(session=self, router=self.router, max_steps=8, history_turn_limit=15)
         self.history: list[dict[str, str]] = []
         self._last_turn_was_analyst: bool = False
 
@@ -665,37 +667,6 @@ class ConversationSession:
                 announcements.append(f"⚡ [System Notice] Background task '{n.name}' ({n.task_id}) reached state: {n.state.value}.")
             yield "\n".join(announcements) + "\n\n"
 
-        # Natural Analyst Intent Interception (The Analyst Engine)
-        lowered = user_text.lower().strip()
-        has_graph_kw = any(kw in lowered for kw in ["graph", "grph", "chart", "plot", "visualize", "trajectory", "analytics"])
-        has_action = any(v in lowered for v in ["generate", "genearte", "create", "make", "show", "draw", "plot", "display", "give me", "produce", "research"])
-        is_direct = any(lowered.startswith(p) for p in ["analyze ", "plot ", "/analyze", "/plot"])
-        is_followup = (
-            lowered.startswith("now for ") or lowered.startswith("what about ") or lowered.startswith("same for ")
-        ) and getattr(self, "_last_turn_was_analyst", False)
-
-        is_analyst_intent = (has_graph_kw and has_action) or is_direct or is_followup
-        if is_analyst_intent:
-            self._last_turn_was_analyst = True
-            if is_followup:
-                subject = re.sub(r"^(now for|what about|same for)\s+", "", user_text, flags=re.IGNORECASE).strip()
-                clean_query = f"{subject} revenue and financial performance trajectory"
-            else:
-                clean_query = re.sub(
-                    r"^(please\s+)?(research\s+and\s+)?(generate|genearte|create|make|show|plot|draw|display)\s+(a\s+)?(graph|grph|chart|plot)\s+(of|for|on)?\s*",
-                    "",
-                    user_text,
-                    flags=re.IGNORECASE,
-                ).strip()
-                if not clean_query:
-                    clean_query = user_text
-
-            async for token in self.analyst.analyze_and_plot(clean_query, preview=True):
-                yield token
-            return
-
-        self._last_turn_was_analyst = False
-
         # 3. Unified Hybrid Memory Retrieval (BM25 + pgvector + Graph RRF)
         memories = await self.memory.search(
             query=user_text,
@@ -703,19 +674,18 @@ class ConversationSession:
             trace_id=trace_id,
         )
 
-        # 3. Append User Message
-        self.history.append({"role": "user", "content": user_text})
-
-        # 4. Assemble Context Window
-        full_context = format_context_with_memories(memories, self.history)
-
-        # 5. Stream LLM Tokens
+        # 4. Autonomous Agent Loop (ReAct: max 8 steps, context last ~15 turns, direct tool resolution)
         full_assistant_reply = []
-        async for token in self.router.stream_completion(full_context):
+        async for token in self.agent_loop.run(
+            user_input=user_text,
+            retrieved_memories=memories,
+            trace_id=trace_id,
+        ):
             full_assistant_reply.append(token)
             yield token
 
         assistant_text = "".join(full_assistant_reply)
+        self.history.append({"role": "user", "content": user_text})
         self.history.append({"role": "assistant", "content": assistant_text})
 
         # 6. Asynchronously persist interaction to Memory Engine (L0 Event)

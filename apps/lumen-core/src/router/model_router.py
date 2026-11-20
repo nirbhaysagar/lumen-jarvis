@@ -46,6 +46,159 @@ class ModelRouter:
     def has_live_keys(self) -> bool:
         return self.active_provider is not None
 
+    async def create_completion(
+        self,
+        messages: Sequence[dict[str, Any]],
+        tools: Optional[List[dict[str, Any]]] = None,
+        tool_choice: Optional[str] = None,
+        temperature: float = 0.1,
+        model: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """
+        Executes a single conversational completion with optional structured tool calls.
+        Returns message dict: {"role": "assistant", "content": str, "tool_calls": list}
+        """
+        self.reload_keys()
+        provider = self.active_provider
+
+        # 1. Groq Fast-Path (<100ms latency)
+        if provider == "groq" and self.groq_key:
+            selected_model = model or os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+            return await self._create_openai_compatible(
+                base_url="https://api.groq.com/openai/v1/chat/completions",
+                api_key=self.groq_key,
+                model=selected_model,
+                messages=messages,
+                tools=tools,
+                tool_choice=tool_choice,
+                temperature=temperature,
+            )
+
+        # 2. OpenAI Standard Path
+        if provider == "openai" and self.openai_key:
+            selected_model = model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+            return await self._create_openai_compatible(
+                base_url="https://api.openai.com/v1/chat/completions",
+                api_key=self.openai_key,
+                model=selected_model,
+                messages=messages,
+                tools=tools,
+                tool_choice=tool_choice,
+                temperature=temperature,
+            )
+
+        # 3. Offline Fallback
+        return await self._create_offline_completion(messages, tools)
+
+    async def _create_openai_compatible(
+        self,
+        base_url: str,
+        api_key: str,
+        model: str,
+        messages: Sequence[dict[str, Any]],
+        tools: Optional[List[dict[str, Any]]],
+        tool_choice: Optional[str],
+        temperature: float,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "model": model,
+            "messages": list(messages),
+            "temperature": temperature,
+        }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = tool_choice or "auto"
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                res = await client.post(base_url, headers=headers, json=payload)
+                if res.status_code == 200:
+                    data = res.json()
+                    choice = data.get("choices", [{}])[0].get("message", {})
+                    return {
+                        "role": "assistant",
+                        "content": choice.get("content") or "",
+                        "tool_calls": choice.get("tool_calls") or [],
+                    }
+                elif res.status_code == 429:
+                    logger.warning(f"Groq {model} rate limited (429). Attempting fast failover to gpt-oss-20b...")
+                    if "120b" in model:
+                        payload["model"] = "openai/gpt-oss-20b"
+                        res2 = await client.post(base_url, headers=headers, json=payload)
+                        if res2.status_code == 200:
+                            data = res2.json()
+                            choice = data.get("choices", [{}])[0].get("message", {})
+                            return {
+                                "role": "assistant",
+                                "content": choice.get("content") or "",
+                                "tool_calls": choice.get("tool_calls") or [],
+                            }
+                    # If still 429 or other model, wait 2 seconds and retry once
+                    await asyncio.sleep(2.0)
+                    res3 = await client.post(base_url, headers=headers, json=payload)
+                    if res3.status_code == 200:
+                        data = res3.json()
+                        choice = data.get("choices", [{}])[0].get("message", {})
+                        return {
+                            "role": "assistant",
+                            "content": choice.get("content") or "",
+                            "tool_calls": choice.get("tool_calls") or [],
+                        }
+                    logger.error(f"Provider Error after retry {res3.status_code}: {res3.text}")
+                    return await self._create_offline_completion(messages, tools)
+                else:
+                    logger.error(f"Provider Error {res.status_code}: {res.text}")
+                    return await self._create_offline_completion(messages, tools)
+        except Exception as e:
+            logger.error(f"Error calling {base_url}: {e}")
+            return await self._create_offline_completion(messages, tools)
+
+    async def _create_offline_completion(
+        self,
+        messages: Sequence[dict[str, Any]],
+        tools: Optional[List[dict[str, Any]]],
+    ) -> dict[str, Any]:
+        """Offline fallback tool selector when no cloud keys are active."""
+        if messages and messages[-1].get("role") == "tool":
+            return {
+                "role": "assistant",
+                "content": "Analysis completed, Sir. Results have been processed and archived.",
+                "tool_calls": [],
+            }
+
+        last_msg = ""
+        for m in reversed(messages):
+            if m.get("role") == "user":
+                last_msg = m.get("content", "")
+                break
+
+        lowered = last_msg.lower()
+        if tools and any(kw in lowered for kw in ["graph", "chart", "plot", "revenue", "analytics"]) and not any(h in lowered for h in ["hamlet", "story", "novel"]):
+            return {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_mock_analyst",
+                        "type": "function",
+                        "function": {
+                            "name": "analyst_engine",
+                            "arguments": json.dumps({"query": last_msg, "preview": True}),
+                        },
+                    }
+                ],
+            }
+        return {
+            "role": "assistant",
+            "content": f"Understood, Sir: '{last_msg}'. All core sub-systems operational under local offline protocol.",
+            "tool_calls": [],
+        }
+
     async def stream_completion(
         self,
         messages: Sequence[dict[str, str]],
