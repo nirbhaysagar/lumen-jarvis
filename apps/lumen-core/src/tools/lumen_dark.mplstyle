@@ -1,0 +1,68 @@
+# ==============================================================================
+# Lumen Dark Matplotlib Stylesheet
+# Clean, modern, high-contrast dark palette for JARVIS visual analytics
+# ==============================================================================
+
+# Figure & Canvas
+figure.facecolor: 0f141c
+figure.edgecolor: 0f141c
+figure.dpi: 300
+figure.autolayout: True
+
+# Axes & Background
+axes.facecolor: 111625
+axes.edgecolor: 334155
+axes.linewidth: 1.0
+axes.grid: True
+axes.titlesize: 13
+axes.titleweight: bold
+axes.titlecolor: f8fafc
+axes.titlepad: 12
+axes.labelsize: 10
+axes.labelcolor: 94a3b8
+axes.labelweight: medium
+axes.labelpad: 8
+axes.spines.top: False
+axes.spines.right: False
+
+# Color Cycle (Neon Cyan, Violet, Emerald, Amber, Rose, Sky)
+axes.prop_cycle: cycler('color', ['00f0ff', 'a855f7', '10b981', 'f59e0b', 'f43f5e', '38bdf8', 'fb923c'])
+
+# Grid Styling
+grid.color: 1e293b
+grid.linestyle: :
+grid.linewidth: 0.8
+grid.alpha: 0.7
+
+# Ticks
+xtick.color: 64748b
+xtick.labelsize: 9
+xtick.direction: out
+ytick.color: 64748b
+ytick.labelsize: 9
+ytick.direction: out
+
+# Lines & Scatters
+lines.linewidth: 2.2
+lines.solid_capstyle: round
+lines.markersize: 6
+
+# Legend
+legend.facecolor: 111625
+legend.edgecolor: 334155
+legend.fontsize: 9
+legend.framealpha: 0.95
+legend.borderaxespad: 1.0
+legend.labelcolor: e2e8f0
+
+# Text & Font
+font.family: sans-serif
+font.sans-serif: Helvetica, Arial, DejaVu Sans
+text.color: e2e8f0
+
+# Output saving
+savefig.facecolor: 0f141c
+savefig.edgecolor: 0f141c
+savefig.dpi: 300
+savefig.bbox: tight
+savefig.pad_inches: 0.15

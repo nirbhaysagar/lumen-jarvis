@@ -27,6 +27,7 @@ from ..voice.daemon import WakeWordDaemon
 from ..voice.stt import WhisperSTTProvider, MockSTTProvider
 from ..voice.tts import NativeMacTTS, MockNeuralTTS
 from ..sentinel.daemon import SentinelDaemon
+from ..analytics.engine import AnalystEngine
 
 
 def classify_preference(text: str) -> tuple[str, str]:
@@ -85,6 +86,7 @@ class ConversationSession:
         voice_gateway: VoiceGateway | None = None,
         wake_word_daemon: WakeWordDaemon | None = None,
         sentinel_daemon: SentinelDaemon | None = None,
+        analyst_engine: AnalystEngine | None = None,
     ):
         self.conversation_id = conversation_id or f"conv_{uuid.uuid4().hex[:8]}"
         self.memory = memory_client or MemoryServiceClient()
@@ -113,6 +115,7 @@ class ConversationSession:
             coordinator=self.voice.coordinator
         )
         self.sentinel = sentinel_daemon or SentinelDaemon(vault_sync=self.vault)
+        self.analyst = analyst_engine or AnalystEngine(router=self.router, research_agent=self.research)
         self.history: list[dict[str, str]] = []
 
     async def spawn_background_task(
@@ -346,6 +349,15 @@ class ConversationSession:
                     return
             content = target.read_text(encoding="utf-8")
             yield f"📄 Research Dossier: {target.name}\n\n{content}"
+            return
+
+        if trimmed.startswith("/analyze ") or trimmed.startswith("/plot "):
+            query = trimmed.split(" ", 1)[1].strip()
+            if not query:
+                yield "Please specify an analytical query, Sir. Example: `/analyze rockstar games annual revenue trajectory`"
+                return
+            async for token in self.analyst.analyze_and_plot(query, preview=True):
+                yield token
             return
 
         if trimmed == "/approvals":
@@ -651,6 +663,21 @@ class ConversationSession:
             for n in notifications:
                 announcements.append(f"⚡ [System Notice] Background task '{n.name}' ({n.task_id}) reached state: {n.state.value}.")
             yield "\n".join(announcements) + "\n\n"
+
+        # Natural Analyst Intent Interception (The Analyst Engine)
+        lowered = user_text.lower().strip()
+        is_analyst_intent = any(lowered.startswith(prefix) for prefix in [
+            "generate graph", "generate chart", "plot ", "create graph", "create chart", "visualize ", "analyze "
+        ])
+        if is_analyst_intent:
+            clean_query = user_text
+            for prefix in ["generate graph of ", "generate chart of ", "create graph of ", "create chart of ", "plot ", "visualize ", "analyze "]:
+                if lowered.startswith(prefix):
+                    clean_query = user_text[len(prefix):].strip()
+                    break
+            async for token in self.analyst.analyze_and_plot(clean_query, preview=True):
+                yield token
+            return
 
         # 3. Unified Hybrid Memory Retrieval (BM25 + pgvector + Graph RRF)
         memories = await self.memory.search(
