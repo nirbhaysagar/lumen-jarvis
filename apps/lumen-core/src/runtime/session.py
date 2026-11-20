@@ -117,6 +117,7 @@ class ConversationSession:
         self.sentinel = sentinel_daemon or SentinelDaemon(vault_sync=self.vault)
         self.analyst = analyst_engine or AnalystEngine(router=self.router, research_agent=self.research)
         self.history: list[dict[str, str]] = []
+        self._last_turn_was_analyst: bool = False
 
     async def spawn_background_task(
         self,
@@ -666,18 +667,34 @@ class ConversationSession:
 
         # Natural Analyst Intent Interception (The Analyst Engine)
         lowered = user_text.lower().strip()
-        is_analyst_intent = any(lowered.startswith(prefix) for prefix in [
-            "generate graph", "generate chart", "plot ", "create graph", "create chart", "visualize ", "analyze "
-        ])
+        has_graph_kw = any(kw in lowered for kw in ["graph", "grph", "chart", "plot", "visualize", "trajectory", "analytics"])
+        has_action = any(v in lowered for v in ["generate", "genearte", "create", "make", "show", "draw", "plot", "display", "give me", "produce", "research"])
+        is_direct = any(lowered.startswith(p) for p in ["analyze ", "plot ", "/analyze", "/plot"])
+        is_followup = (
+            lowered.startswith("now for ") or lowered.startswith("what about ") or lowered.startswith("same for ")
+        ) and getattr(self, "_last_turn_was_analyst", False)
+
+        is_analyst_intent = (has_graph_kw and has_action) or is_direct or is_followup
         if is_analyst_intent:
-            clean_query = user_text
-            for prefix in ["generate graph of ", "generate chart of ", "create graph of ", "create chart of ", "plot ", "visualize ", "analyze "]:
-                if lowered.startswith(prefix):
-                    clean_query = user_text[len(prefix):].strip()
-                    break
+            self._last_turn_was_analyst = True
+            if is_followup:
+                subject = re.sub(r"^(now for|what about|same for)\s+", "", user_text, flags=re.IGNORECASE).strip()
+                clean_query = f"{subject} revenue and financial performance trajectory"
+            else:
+                clean_query = re.sub(
+                    r"^(please\s+)?(research\s+and\s+)?(generate|genearte|create|make|show|plot|draw|display)\s+(a\s+)?(graph|grph|chart|plot)\s+(of|for|on)?\s*",
+                    "",
+                    user_text,
+                    flags=re.IGNORECASE,
+                ).strip()
+                if not clean_query:
+                    clean_query = user_text
+
             async for token in self.analyst.analyze_and_plot(clean_query, preview=True):
                 yield token
             return
+
+        self._last_turn_was_analyst = False
 
         # 3. Unified Hybrid Memory Retrieval (BM25 + pgvector + Graph RRF)
         memories = await self.memory.search(
