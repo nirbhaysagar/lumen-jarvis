@@ -68,9 +68,8 @@ class ObsidianVaultSync:
         valid_to = fact.get("valid_to")
         status = "ACTIVE" if not valid_to else "SUPERSEDED"
 
-        slug = f"{entity}_{attribute}".replace("/", "_").replace(" ", "_")
-        filename = f"{slug}.md"
-        filepath = self.memories_dir / filename
+        slug = f"{entity}_{attribute}"
+        filepath = self._safe_vault_target(self.memories_dir, slug)
 
         wikilinked_value = self._wikilinkify(str(val))
 
@@ -148,7 +147,16 @@ tags:
         return filepath
 
     def _sanitize_name(self, name: str) -> str:
-        return re.sub(r'[\\/*?:"<>|]', "_", name).strip()
+        clean = re.sub(r'[\\/*?:"<>|]', "_", name).strip()
+        clean = re.sub(r"\.\.+", "_", clean).strip(" _")
+        return clean or "unnamed"
+
+    def _safe_vault_target(self, target_dir: Path, raw_name: str) -> Path:
+        clean = self._sanitize_name(raw_name)
+        target = (target_dir / f"{clean}.md").resolve()
+        if not target.is_relative_to(self.vault_path.resolve()):
+            raise ValueError(f"Path traversal detected in vault note name: '{raw_name}'")
+        return target
 
     def export_entity(self, entity: dict[str, Any]) -> Path:
         """Exports an entity node into an Obsidian Markdown note with [[Wikilinks]]."""
@@ -158,8 +166,7 @@ tags:
         aliases = entity.get("aliases", [])
         description = entity.get("description", "") or f"Canonical entity representing {canonical_name}."
 
-        clean_filename = f"{self._sanitize_name(canonical_name)}.md"
-        filepath = self.entities_dir / clean_filename
+        filepath = self._safe_vault_target(self.entities_dir, canonical_name)
 
         alias_list_str = "\n".join([f"  - '{a}'" for a in aliases]) if aliases else "  []"
         alias_badges = ", ".join([f"[[{a}]]" for a in aliases]) if aliases else "*None recorded*"
@@ -352,7 +359,7 @@ tags:
 
         topic = data.get("topic", "Research Topic")
         slug = re.sub(r"[^a-zA-Z0-9_\-]+", "_", topic.lower()).strip("_")
-        filepath = self.research_dir / f"{slug}.md"
+        filepath = self._safe_vault_target(self.research_dir, slug)
 
         summary = data.get("summary", "")
         key_findings = data.get("key_findings", [])

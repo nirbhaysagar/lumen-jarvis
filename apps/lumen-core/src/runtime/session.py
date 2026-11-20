@@ -295,14 +295,30 @@ class ConversationSession:
             return
 
         if trimmed.startswith("/dossier "):
-            slug = trimmed.split(" ", 1)[1].strip().lower().replace(".md", "")
-            target = self.vault.research_dir / f"{slug}.md"
+            raw_slug = trimmed.split(" ", 1)[1].strip().lower().replace(".md", "")
+            # Security Sanitize: Strip any directory traversal tokens (../, /, \, etc.)
+            clean_slug = re.sub(r"[^a-zA-Z0-9_\-]+", "_", raw_slug).strip("_")
+            if not clean_slug:
+                yield "Invalid dossier name specified, Sir."
+                return
+
+            research_root = self.vault.research_dir.resolve()
+            target = (research_root / f"{clean_slug}.md").resolve()
+
+            # Path Traversal Guard: Ensure target cannot escape research_dir
+            if not target.is_relative_to(research_root):
+                yield f"⚠️ Security violation: Invalid path traversal detected for dossier '{raw_slug}'."
+                return
+
             if not target.exists():
-                matches = list(self.vault.research_dir.glob(f"*{slug}*.md"))
+                matches = [
+                    m for m in research_root.glob(f"*{clean_slug}*.md")
+                    if m.resolve().is_relative_to(research_root)
+                ]
                 if matches:
                     target = matches[0]
                 else:
-                    yield f"Could not find a research dossier matching '{slug}'. Use `/dossiers` to list available notes."
+                    yield f"Could not find a research dossier matching '{clean_slug}'. Use `/dossiers` to list available notes."
                     return
             content = target.read_text(encoding="utf-8")
             yield f"📄 Research Dossier: {target.name}\n\n{content}"

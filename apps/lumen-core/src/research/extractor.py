@@ -1,11 +1,80 @@
 import asyncio
 import os
 import re
+import socket
+import ipaddress
 from typing import List, Tuple, Dict, Any, Optional
 from urllib.parse import urljoin, urlparse
 from pydantic import BaseModel, Field
 import httpx
 from bs4 import BeautifulSoup
+
+
+class SSRFSecurityError(ValueError):
+    """Raised when a URL targets a private, loopback, or reserved network resource."""
+    pass
+
+
+class SSRFGuard:
+    """
+    Prevents Server-Side Request Forgery (SSRF) across web scraping and deep research pipelines.
+    Validates schemes, resolves DNS hostnames, and blocks private/loopback/link-local/metadata IP addresses.
+    """
+
+    ALLOWED_SCHEMES = {"http", "https"}
+
+    # Cloud metadata IPs and well-known internal endpoints
+    BLOCKED_IPS = {
+        "169.254.169.254",  # AWS/GCP/Azure Instance Metadata
+        "fd00:ec2::254",    # AWS IPv6 IMDS
+        "100.100.100.200",  # Alibaba Cloud IMDS
+    }
+
+    @classmethod
+    def validate_url(cls, url: str) -> None:
+        """
+        Validates URL scheme, hostname, and resolved IP addresses.
+        Raises SSRFSecurityError if any target resolves to a private or dangerous range.
+        """
+        if not url:
+            raise SSRFSecurityError("Empty URL provided.")
+
+        parsed = urlparse(url)
+        if parsed.scheme.lower() not in cls.ALLOWED_SCHEMES:
+            raise SSRFSecurityError(f"Prohibited scheme '{parsed.scheme}'. Only HTTP and HTTPS are permitted.")
+
+        hostname = parsed.hostname
+        if not hostname:
+            raise SSRFSecurityError(f"Invalid URL: missing hostname in '{url}'.")
+
+        # Explicit blocked names
+        if hostname.lower() in {"localhost", "127.0.0.1", "::1", "0.0.0.0", "local"}:
+            raise SSRFSecurityError(f"Access to localhost/loopback is prohibited: '{hostname}'.")
+
+        # Resolve hostname to all associated IP addresses
+        try:
+            addr_info = socket.getaddrinfo(hostname, None)
+        except Exception as e:
+            raise SSRFSecurityError(f"DNS resolution failed for '{hostname}': {str(e)}")
+
+        for item in addr_info:
+            ip_str = item[4][0]
+            if ip_str in cls.BLOCKED_IPS:
+                raise SSRFSecurityError(f"Prohibited cloud metadata IP address: '{ip_str}'.")
+
+            try:
+                ip = ipaddress.ip_address(ip_str)
+                if (
+                    ip.is_private
+                    or ip.is_loopback
+                    or ip.is_link_local
+                    or ip.is_multicast
+                    or ip.is_reserved
+                    or ip.is_unspecified
+                ):
+                    raise SSRFSecurityError(f"Target URL resolves to prohibited internal/private IP: '{ip_str}'.")
+            except ValueError:
+                raise SSRFSecurityError(f"Invalid IP address format: '{ip_str}'.")
 
 
 class ExtractedDocument(BaseModel):
@@ -81,6 +150,8 @@ class ContentExtractor:
     4. Defense-in-depth prompt injection sanitization.
     """
 
+    MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024  # 25 MB memory exhaustion ceiling
+
     def __init__(self, shield: Optional[PromptInjectionShield] = None):
         self.shield = shield or PromptInjectionShield()
         self._markitdown = None
@@ -90,6 +161,43 @@ class ContentExtractor:
             from markitdown import MarkItDown
             self._markitdown = MarkItDown()
         return self._markitdown
+
+    async def _safe_fetch_bytes(self, target_url: str, headers: dict, timeout: float = 12.0) -> Tuple[bytes, str, str]:
+        """
+        Fetches remote resources with strict SSRF validation and memory exhaustion protection.
+        Validates target IPs, validates redirect hops, and bounds total downloaded bytes.
+        """
+        current_url = target_url
+        max_redirects = 5
+
+        async with httpx.AsyncClient(headers=headers, follow_redirects=False, timeout=timeout) as client:
+            for _ in range(max_redirects):
+                # Enforce SSRF validation on current URL
+                SSRFGuard.validate_url(current_url)
+
+                resp = await client.get(current_url)
+                if resp.is_redirect:
+                    location = resp.headers.get("location")
+                    if not location:
+                        raise ValueError("Redirect response missing location header.")
+                    current_url = urljoin(current_url, location)
+                    continue
+
+                if resp.status_code != 200:
+                    raise httpx.HTTPStatusError(f"HTTP {resp.status_code}", request=resp.request, response=resp)
+
+                content_length = resp.headers.get("content-length")
+                if content_length and int(content_length) > self.MAX_DOWNLOAD_BYTES:
+                    raise ValueError(f"Resource size ({content_length} bytes) exceeds limit of {self.MAX_DOWNLOAD_BYTES} bytes.")
+
+                content_bytes = resp.content
+                if len(content_bytes) > self.MAX_DOWNLOAD_BYTES:
+                    raise ValueError(f"Downloaded content exceeds limit of {self.MAX_DOWNLOAD_BYTES} bytes.")
+
+                content_type = resp.headers.get("content-type", "").lower()
+                return content_bytes, current_url, content_type
+
+            raise ValueError("Exceeded maximum redirect hops (5).")
 
     def _clean_soup(self, soup: BeautifulSoup) -> str:
         """Strip non-content elements and extract structured text."""
@@ -157,13 +265,19 @@ class ContentExtractor:
         raw_html = ""
         final_url = url
         try:
-            async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=12.0) as client:
-                resp = await client.get(url)
-                final_url = str(resp.url)
-                content_type = resp.headers.get("content-type", "").lower()
-                if "application/pdf" in content_type:
-                    return await self._extract_pdf_bytes(resp.content, final_url, max_chars)
-                raw_html = resp.text
+            content_bytes, final_url, content_type = await self._safe_fetch_bytes(url, headers, timeout=12.0)
+            if "application/pdf" in content_type:
+                return await self._extract_pdf_bytes(content_bytes, final_url, max_chars)
+            raw_html = content_bytes.decode("utf-8", errors="replace")
+        except SSRFSecurityError as se:
+            return ExtractedDocument(
+                url=url,
+                title="Blocked: SSRF Security Violation",
+                content=f"Security Guard: Access to requested endpoint is prohibited ({str(se)}).",
+                has_injection_risk=True,
+                quarantined_blocks=[f"SSRF Target: {url}"],
+                source_type="web"
+            )
         except Exception as e:
             return ExtractedDocument(
                 url=url,
@@ -199,6 +313,7 @@ class ContentExtractor:
     async def _crawl4ai_fallback(self, url: str) -> Optional[str]:
         """Fallback to Crawl4AI for dynamic SPAs."""
         try:
+            SSRFGuard.validate_url(url)
             from crawl4ai import AsyncWebCrawler
             async with AsyncWebCrawler(verbose=False) as crawler:
                 res = await crawler.arun(url=url)
@@ -209,11 +324,19 @@ class ContentExtractor:
         return None
 
     async def _extract_remote_pdf(self, url: str, headers: dict, max_chars: int) -> ExtractedDocument:
-        """Download remote PDF and extract via MarkItDown."""
+        """Download remote PDF and extract via MarkItDown with SSRF and size bounds."""
         try:
-            async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=20.0) as client:
-                resp = await client.get(url)
-                return await self._extract_pdf_bytes(resp.content, url, max_chars)
+            content_bytes, final_url, _ = await self._safe_fetch_bytes(url, headers, timeout=20.0)
+            return await self._extract_pdf_bytes(content_bytes, final_url, max_chars)
+        except SSRFSecurityError as se:
+            return ExtractedDocument(
+                url=url,
+                title="Blocked: SSRF Security Violation",
+                content=f"Security Guard: Access to requested PDF endpoint is prohibited ({str(se)}).",
+                has_injection_risk=True,
+                quarantined_blocks=[f"SSRF PDF Target: {url}"],
+                source_type="document"
+            )
         except Exception as e:
             return ExtractedDocument(
                 url=url,

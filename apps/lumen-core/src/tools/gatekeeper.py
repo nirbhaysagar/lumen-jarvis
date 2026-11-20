@@ -203,29 +203,39 @@ class ASTGatekeeper:
 
     @classmethod
     def _split_into_segments(cls, raw: str) -> list[list[str]]:
-        """Splits a compound command string into pipeline segments."""
-        try:
-            lexer = shlex.shlex(raw, punctuation_chars=True)
-            lexer.whitespace_split = True
-            tokens = list(lexer)
-        except Exception:
+        """Splits a compound command string into pipeline segments across all command delimiters and lines."""
+        lines = [line.strip() for line in raw.splitlines() if line.strip()]
+        if not lines:
             return []
 
         delimiters = {";", "&&", "||", "|", "&"}
         segments: list[list[str]] = []
-        current: list[str] = []
-        for t in tokens:
-            if t in delimiters:
-                if current:
-                    segments.append(current)
-                    current = []
-            else:
-                # Strip wrapping quotes if preserved by shlex
-                if (t.startswith('"') and t.endswith('"')) or (t.startswith("'") and t.endswith("'")):
-                    t = t[1:-1]
-                current.append(t)
-        if current:
-            segments.append(current)
+
+        for line in lines:
+            try:
+                lexer = shlex.shlex(line, punctuation_chars=True)
+                lexer.whitespace_split = True
+                tokens = list(lexer)
+            except Exception:
+                try:
+                    tokens = shlex.split(line)
+                except Exception:
+                    tokens = line.split()
+
+            current: list[str] = []
+            for t in tokens:
+                if t in delimiters:
+                    if current:
+                        segments.append(current)
+                        current = []
+                else:
+                    # Strip wrapping quotes if preserved by shlex
+                    if (t.startswith('"') and t.endswith('"')) or (t.startswith("'") and t.endswith("'")):
+                        t = t[1:-1]
+                    current.append(t)
+            if current:
+                segments.append(current)
+
         return segments
 
     @classmethod

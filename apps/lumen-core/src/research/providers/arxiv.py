@@ -1,7 +1,10 @@
 import asyncio
 import urllib.parse
 import urllib.request
-import xml.etree.ElementTree as ET
+try:
+    import defusedxml.ElementTree as ET
+except ImportError:
+    import xml.etree.ElementTree as ET
 from typing import List
 from src.research.models import SearchResult
 from src.research.providers.base import SearchProvider
