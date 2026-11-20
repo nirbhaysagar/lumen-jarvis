@@ -6,6 +6,7 @@ into atomic Markdown notes with [[Wikilinks]]. Decouples DB transactions from di
 from __future__ import annotations
 import asyncio
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Any
 
@@ -30,7 +31,11 @@ class OutboxWorker:
     ) -> None:
         self.client = memory_client or MemoryServiceClient()
         self.vault = vault_sync or ObsidianVaultSync()
-        self.postgres_dsn = postgres_dsn or "postgresql://lumen:lumen_password@localhost:5432/lumen_memory"
+        self.postgres_dsn = (
+            postgres_dsn
+            or os.getenv("DATABASE_URL")
+            or f"postgresql://{os.getenv('POSTGRES_USER', 'lumen')}:{os.getenv('POSTGRES_PASSWORD', 'lumen_secure_pass')}@{os.getenv('POSTGRES_HOST', 'localhost')}:{os.getenv('POSTGRES_PORT', '5432')}/{os.getenv('POSTGRES_DB', 'lumen_memory')}"
+        )
         self.fallback_poll_interval = fallback_poll_interval
 
         self._running = False

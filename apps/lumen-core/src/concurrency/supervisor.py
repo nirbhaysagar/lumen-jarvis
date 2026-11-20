@@ -158,11 +158,24 @@ class TaskSupervisor:
                 checkpoint.progress = 0.05
                 await self._persist_checkpoint(checkpoint)
 
-                # Prepare progress reporter callback
-                async def progress_reporter(percent: float, message: str | None = None) -> None:
+                # Prepare progress reporter callback (handles both (percent, msg) and (msg, percent))
+                async def progress_reporter(arg1: Any, arg2: Any = None) -> None:
                     token.throw_if_cancelled()
-                    checkpoint.progress = max(0.0, min(1.0, percent))
-                    if message:
+                    if isinstance(arg1, (int, float)):
+                        pct = float(arg1)
+                        msg = str(arg2) if arg2 is not None else None
+                    elif isinstance(arg2, (int, float)):
+                        pct = float(arg2)
+                        msg = str(arg1) if arg1 is not None else None
+                    else:
+                        pct = 0.5
+                        msg = str(arg1) if arg1 is not None else None
+
+                    if pct > 1.0:
+                        pct = pct / 100.0
+
+                    checkpoint.progress = max(0.0, min(1.0, pct))
+                    if message := msg:
                         checkpoint.status_message = message
                     await self._persist_checkpoint(checkpoint)
 

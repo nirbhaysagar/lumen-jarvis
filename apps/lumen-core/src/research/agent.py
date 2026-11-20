@@ -168,7 +168,7 @@ class DeepResearchAgent:
                 extracted_docs.append(deep_doc)
 
         if checkpoint_cb:
-            await checkpoint_cb(f"Phase 4: Synthesizing claims and compiling dossier", 85)
+            await checkpoint_cb("Phase 4: Synthesizing claims and compiling dossier", 85)
 
         # 4. Synthesize claims, quotes, and findings
         all_claims: List[ExtractedClaim] = []

@@ -264,8 +264,8 @@ class ConversationSession:
                 yield "Please specify a research topic, Sir. Example: `/research PostgreSQL 1536 vector latency`"
                 return
 
-            async def _research_worker(t: str, token: CancellationToken, checkpoint_cb: Any):
-                dossier = await self.research.run_research(t, token=token, checkpoint_cb=checkpoint_cb)
+            async def _research_worker(t: str, cancellation_token: CancellationToken = None, progress_reporter: Any = None):
+                dossier = await self.research.run_research(t, token=cancellation_token, checkpoint_cb=progress_reporter)
                 path = self.vault.export_research_dossier(dossier)
                 # Stage top claims into review queue as Tier-B knowledge proposals
                 for c in dossier.claims[:4]:
