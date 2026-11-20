@@ -95,5 +95,20 @@ async def test_session_proposals_and_graph_commands():
     search_reply = "".join(search_tokens)
     assert ("Ranked Hybrid Search Results" in search_reply) or ("No relevant memories found" in search_reply)
 
+    # 7. Check /research command dispatching
+    research_tokens = []
+    async for token in session.process_turn("/research PostgreSQL vector performance"):
+        research_tokens.append(token)
+    research_reply = "".join(research_tokens)
+    assert "The Eyes" in research_reply
+    assert "Dispatched autonomous deep research task" in research_reply
+
+    # 8. Check /dossiers command
+    dossier_tokens = []
+    async for token in session.process_turn("/dossiers"):
+        dossier_tokens.append(token)
+    dossier_reply = "".join(dossier_tokens)
+    assert ("Obsidian Research Dossiers" in dossier_reply) or ("No research dossiers have been generated yet" in dossier_reply)
+
     await memory_client.close()
 

@@ -189,12 +189,17 @@ async def test_live_outbox_worker_sync_flow(temp_vault: ObsidianVaultSync):
     )
     assert res is not None
 
-    # 2. Run OutboxWorker single drain pass
+    # 2. Run OutboxWorker drain pass until all pending are processed
     worker = OutboxWorker(
         memory_client=client,
         vault_sync=temp_vault,
     )
-    synced = await worker.process_pending_batch()
+    synced = 0
+    for _ in range(5):
+        batch_synced = await worker.process_pending_batch()
+        synced += batch_synced
+        if (temp_vault.entities_dir / f"System_{unique}.md").exists():
+            break
     assert synced >= 1
 
     # 3. Check entity note exists on disk

@@ -16,7 +16,7 @@
 | **Phase 3** | Unbroken Bi-Temporal Memory | **COMPLETE** | Dual-clock time (Valid vs Transaction), Trace Provenance DAG, Automated Fact Superseding, Time-Travel Queries | Pytest suite (0.33s, 3 tests passed), Live REST & REPL `/trace` verified |
 | **Phase 4** | Safe Computer Control ("The Hands") | **COMPLETE** | Multi-Layered Defense (Pipeline Splitter, Python AST, Credential Sentinel, Env Scrubbing) | Automated security tests (0.53s, 15 tests passed), Live REPL `/exec` verified |
 | **Phase 5** | Knowledge Graph, Review Queue & Hybrid Retrieval | **COMPLETE** | 3-Table Schema (entities, triples, predicates), Two-Tier Entity Resolver, Review Queue Contradiction Gating, Transactional Outbox Pattern, Overnight Consolidation Daemon, Unified Hybrid RRF Search | Automated test suite (49/49 tests passed), Live REPL `/search`, `/consolidate`, `/digest`, `/outbox`, `/proposals`, `/graph` verified |
-| **Phase 6** | Autonomous Web & Deep Research ("The Eyes") | QUEUED | Headless Browser Automation, Markdown Extraction, Document Ingestion | Scraping & DOM traversal integration tests |
+| **Phase 6** | Autonomous Web & Deep Research ("The Eyes") | **COMPLETE** | Query De-Optimizer, Multi-Source Discovery (Web, HN Algolia, Reddit, arXiv), Anti-SEO Citation Walking, Prompt Injection Shield, Crawl4AI + MarkItDown, Obsidian Research Dossiers | Automated test suite (63/63 tests passed), Live REPL `/research`, `/dossiers`, `/dossier` verified |
 | **Phase 7** | Voice & Barge-in Gateway ("The Senses") | **SCHEDULED FOR CAPSTONE** | Full-duplex WebSocket, VAD interrupt tokens, Silero/Kokoro streaming (Architecture locked in `docs/VOICE_GATEWAY_ARCHITECTURE.md`) | Audio roundtrip latency tests |
 
 ---
@@ -35,6 +35,7 @@
 | **ADR-008** | Transactional Outbox Pattern for Obsidian Sync | PostgreSQL `memory_outbox` + `pg_notify` + Async Worker | Inline direct disk writes | Eliminates dual-write anti-patterns; removes file I/O latency from conversation turns; guarantees eventual consistency between PostgreSQL memory and Obsidian notes with exponential backoff retries. |
 | **ADR-009** | Overnight Consolidation Patrol & Morning Intelligence Briefing | Autonomous Nightly Patrol + Gated Review Queue + Markdown Digest | Unchecked automated edge mutation, Destructive auto-deduping | Solves epistemic drift: AI never unilaterally resolves contradictions or merges aliases. All findings are staged as Tier B review proposals with explicit explanations, and synthesized into `vault/digests/digest_YYYY-MM-DD.md`. |
 | **ADR-010** | Unified Hybrid Retrieval with Reciprocal Rank Fusion (RRF) | Multi-Channel RRF ($k=60$) over Lexical (BM25), Dense Vector (HNSW), and Graph Traversal | Score-normalization (Min-Max / Softmax), Isolated retrieval calls | Eliminates fragmented search logic; avoids uncalibrated score scale collapse; parameter-free rank fusion guarantees robust ordering across disparate retrieval channels. |
+| **ADR-011** | Multi-Surface Deep Research & Anti-SEO Graph Exploration | Query De-Optimization + Multi-Source Discovery (DuckDuckGo, Hacker News Algolia, Reddit, arXiv) + Recursive Semantic Citation Traversal ($d \ge 1$) + Prompt Injection Shielding | Commercial top-5 scraping alone, Unfiltered raw HTML ingestion | Escapes commercial SEO spam farms; uncovers buried practitioner debates and primary science; protects reasoning loop from indirect prompt injection; binds findings into Knowledge Graph and Obsidian Vault. |
 
 ---
 
@@ -258,6 +259,44 @@
 
 ---
 
+### Phase 6: Add-on 5 — Autonomous Web & Deep Research ("The Eyes")
+- **Technique:** Multi-Surface Discovery + Query De-Optimization + Recursive Semantic Link Walking + Defense-in-Depth Injection Quarantine.
+- **Core Architecture (`apps/lumen-core/src/research/`):**
+  1. **Step 1: Multi-Source Discovery Adapter (`MultiSourceDiscoveryEngine` & `QueryDeoptimizer`):**
+     - **Query De-Optimizer (`src/research/deoptimizer.py`):** Strips conversational fluff; isolates precise technical tokens (`snake_case`, dot notation, numbers); generates anti-SEO negative tokens (`-seo -affiliate -sponsored -buy -course -top10`); constructs 4 specialized queries (`general`, `exact_token`, `community`, `academic`).
+     - **Search Provider Protocol (`src/research/providers/`):**
+       - `DuckDuckGoProvider`: Zero-credential web search via `ddgs`/`primp` browser impersonation.
+       - `HackerNewsProvider`: Direct Algolia REST API (`hn.algolia.com/api/v1/search`) returning practitioner comments, stories, points, and discussion threads.
+       - `RedditProvider`: Scoped search syntax targeting Reddit community discussions without triggering bot 403 API gates.
+       - `ArxivProvider`: Direct public Atom XML query (`export.arxiv.org/api/query`) returning academic papers, authors, abstracts, and direct PDF links.
+     - **Fault-Tolerant Concurrent Fan-Out:** Uses `asyncio.wait(tasks, timeout=12.0)` with per-task harvesting and pending task cancellation so a slow provider never delays fast results. Strips URL tracking parameters (`utm_*`, `ref=`) for canonical deduplication.
+  2. **Step 2: Content Extraction Engine (`ContentExtractor`) & Prompt Injection Shield:**
+     - **Prompt Injection Defense (`src/research/extractor.py`):** Scans extracted text against compiled attack signatures (`ignore all previous instructions`, `you are now in developer mode`, `system prompt:`, exfiltration image beacons `![img](...?secret=...)`). Quarantines detected payloads inside safe security blocks and neutralizes beacons.
+     - **Multi-Tier Content Ingestion:**
+       - *Tier 1 (Fast Stealth HTML):* `httpx` + BeautifulSoup strips `<nav>`, `<footer>`, `<script>`, `<style>`, `<aside>`, converting headings, lists, tables, and code blocks into clean Markdown.
+       - *Tier 2 (Dynamic SPA Fallback):* Dispatches client-rendered React/Vue pages to `Crawl4AI` (`AsyncWebCrawler`).
+       - *Tier 3 (Document Conversion):* Integrates Microsoft `MarkItDown` for converting local and remote PDFs, DOCX, and text into Markdown.
+     - **Outbound Link Harvesting:** Parses `<a href="...">` on visited pages to feed the recursive link frontier.
+  3. **Step 3: Deep Research Orchestrator (`DeepResearchAgent`):**
+     - Executes non-blocking research loops on **TaskSupervisor ("The Spine")**.
+     - **Semantic Link Frontier ($d \ge 1$):** Scores outbound links using topic keyword relevance ($\text{Score}(u)$), hopping into high-scoring citations to uncover un-SEO technical blogs, Gists, and primary papers.
+     - **Claim & Quote Extractor:** Breaks paragraphs into individual sentences, isolates assertive empirical claims, and extracts verbatim practitioner quotes with source attribution.
+     - **Cooperative Cancellation:** Full compliance with `CancellationToken.throw_if_cancelled()` for instant `/task-cancel` support.
+  4. **Step 4: Knowledge Graph Ingestion, Obsidian Dossier Generation & REPL Commands:**
+     - **Obsidian Research Dossiers (`vault/research/{topic_slug}.md`):** Automatically renders YAML frontmatter, executive summary, key technical findings, practitioner quotes, and explored sources table via `ObsidianVaultSync.export_research_dossier()`.
+     - **Epistemic Integrity:** External web claims are staged to the Memory Engine Review Queue as `TIER_B` proposals (`(Topic)-[EVIDENCE_FOR]->(Claim)`) rather than blindly mutating user memory.
+     - **REPL Commands:**
+       - `/research <topic>`: Dispatches non-blocking deep research task in background.
+       - `/dossiers`: Lists all generated research dossiers in the Obsidian vault.
+       - `/dossier <name>`: Displays full findings, verbatim quotes, and cited sources.
+- **Verification & Test Results:**
+  - `apps/lumen-core/tests/test_multi_source_search.py`: 6 passed in **0.90s** (de-optimizer, deduplication, fault tolerance, live HN API).
+  - `apps/lumen-core/tests/test_content_extractor.py`: 5 passed in **0.47s** (injection shield, beacon neutralization, HTML cleaning, MarkItDown).
+  - `apps/lumen-core/tests/test_deep_research_agent.py`: 3 passed in **0.14s** (end-to-end research loop, cooperative cancellation, vault dossier export).
+  - Monorepo test suite: **63/63 automated tests green (100%)** (47 `lumen-core`, 16 `memory-engine`).
+
+---
+
 ## 🗺️ 4. What We Are Building Next (Roadmap Checklist)
 
 - [x] **Phase 0:** Infrastructure Hub (PostgreSQL 16 + pgvector v0.8.7, Redis 7).
@@ -274,9 +313,13 @@
   - [x] **Step 3:** Transactional Outbox Pattern for decoupled Obsidian Vault Synchronization (`memory_outbox` + `pg_notify`).
   - [x] **Step 4:** Overnight Consolidation Daemon (contradiction patrol, semantic orphan clustering, morning intelligence digest in `vault/digests/`).
   - [x] **Step 5:** Unified Hybrid Retrieval Service (`search()`) with Reciprocal Rank Fusion (BM25 + pgvector + graph).
-- [ ] **Phase 6: Add-on 5 — Autonomous Web & Deep Research ("The Eyes"):**
-  - [ ] Headless browser / Crawl4AI markdown extraction.
-  - [ ] Document reader agent and web search integration.
+- [x] **Phase 6: Add-on 5 — Autonomous Web & Deep Research ("The Eyes") — COMPLETE:**
+  - [x] Multi-Source Discovery Adapter (DuckDuckGo, Hacker News Algolia, Reddit, arXiv).
+  - [x] Query De-Optimizer with anti-commercial exclusions and exact token quoting.
+  - [x] Content Extraction Engine (Crawl4AI, Microsoft MarkItDown, BeautifulSoup stealth cleaner).
+  - [x] Prompt Injection Defense Shield (jailbreak quarantine, tracking beacon neutralization).
+  - [x] Deep Research Orchestrator with recursive citation link walking ($d \ge 1$) into un-SEO resources.
+  - [x] Knowledge Graph Review Queue staging (`TIER_B`) and Obsidian Dossier generation in `vault/research/`.
 - [ ] **Phase 7: Add-on 6 — Voice & Barge-in Gateway ("The Senses" - Final Capstone):**
   - [ ] Full-duplex WebSocket server (`ws://localhost:8765/voice`).
   - [ ] Silero VAD CoreML acceleration with sub-50ms barge-in interrupt tokens.

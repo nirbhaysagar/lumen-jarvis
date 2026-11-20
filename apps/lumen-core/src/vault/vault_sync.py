@@ -30,6 +30,7 @@ class ObsidianVaultSync:
         self.daily_dir = self.vault_path / "daily"
         self.entities_dir = self.vault_path / "entities"
         self.digests_dir = self.vault_path / "digests"
+        self.research_dir = self.vault_path / "research"
 
         self._ensure_directories()
 
@@ -39,6 +40,7 @@ class ObsidianVaultSync:
         self.daily_dir.mkdir(parents=True, exist_ok=True)
         self.entities_dir.mkdir(parents=True, exist_ok=True)
         self.digests_dir.mkdir(parents=True, exist_ok=True)
+        self.research_dir.mkdir(parents=True, exist_ok=True)
 
     def _wikilinkify(self, text: str) -> str:
         """Adds wikilinks to recognized technologies, programming languages, and entities."""
@@ -336,6 +338,90 @@ tags:
         filepath.write_text(content.strip() + "\n", encoding="utf-8")
         return filepath
 
+    def export_research_dossier(self, dossier: Any) -> Path:
+        """
+        Exports an autonomous deep research dossier into the Obsidian Vault under vault/research/{topic_slug}.md.
+        """
+        # Support either ResearchDossier instance or dict
+        if hasattr(dossier, "model_dump"):
+            data = dossier.model_dump()
+        elif isinstance(dossier, dict):
+            data = dossier
+        else:
+            data = vars(dossier)
+
+        topic = data.get("topic", "Research Topic")
+        slug = re.sub(r"[^a-zA-Z0-9_\-]+", "_", topic.lower()).strip("_")
+        filepath = self.research_dir / f"{slug}.md"
+
+        summary = data.get("summary", "")
+        key_findings = data.get("key_findings", [])
+        claims = data.get("claims", [])
+        sources = data.get("sources", [])
+        gen_time = data.get("generated_at", datetime.now(timezone.utc).isoformat())
+
+        findings_lines = "\n".join(f"* {self._wikilinkify(f)}" for f in key_findings) if key_findings else "* No specific findings recorded."
+
+        claims_lines = []
+        for c in claims:
+            c_text = c.get("claim", "") if isinstance(c, dict) else getattr(c, "claim", "")
+            author = c.get("author") if isinstance(c, dict) else getattr(c, "author", None)
+            url = c.get("source_url") if isinstance(c, dict) else getattr(c, "source_url", "")
+            src_type = c.get("source_type") if isinstance(c, dict) else getattr(c, "source_type", "web")
+            author_str = f" — *{author}*" if author else ""
+            claims_lines.append(f"> \"{c_text}\"{author_str}\n>\n> [Source ({src_type})]({url})\n")
+
+        claims_section = "\n".join(claims_lines) if claims_lines else "* No verbatim claims extracted."
+
+        source_rows = []
+        for s in sources:
+            s_title = s.get("title", "") if isinstance(s, dict) else getattr(s, "title", "")
+            s_type = s.get("source_type", "") if isinstance(s, dict) else getattr(s, "source_type", "")
+            s_url = s.get("url", "") if isinstance(s, dict) else getattr(s, "url", "")
+            source_rows.append(f"| {s_title[:60]} | `{s_type}` | [Link]({s_url}) |")
+
+        sources_table = (
+            "| Title | Category | Link |\n| :--- | :--- | :--- |\n" + "\n".join(source_rows)
+            if source_rows else "* No source references recorded."
+        )
+
+        content = f"""---
+title: "Research Dossier: {topic}"
+topic: "{topic}"
+generated_at: "{gen_time}"
+source_count: {len(sources)}
+claim_count: {len(claims)}
+tags:
+  - type/research
+  - status/synthesized
+---
+
+# 🔍 Research Dossier: {self._wikilinkify(topic)}
+
+## 📋 Executive Summary
+{self._wikilinkify(summary)}
+
+---
+
+## 🎯 Key Technical Findings
+{findings_lines}
+
+---
+
+## 💬 Practitioner Quotes & Empirical Claims
+{claims_section}
+
+---
+
+## 🌐 Explored Knowledge Sources
+{sources_table}
+
+---
+*Autonomous deep research compiled by Lumen ("The Eyes") via Multi-Source Discovery & Recursive Citation Crawling.*
+"""
+        filepath.write_text(content.strip() + "\n", encoding="utf-8")
+        return filepath
+
     def get_vault_stats(self) -> dict[str, int]:
         """Returns counts of generated Markdown files across vault categories."""
         return {
@@ -344,5 +430,6 @@ tags:
             "episodes": len(list(self.episodes_dir.glob("*.md"))),
             "daily": len(list(self.daily_dir.glob("*.md"))),
             "digests": len(list(self.digests_dir.glob("*.md"))),
+            "research": len(list(self.research_dir.glob("*.md"))),
             "total_notes": len(list(self.vault_path.rglob("*.md"))),
         }

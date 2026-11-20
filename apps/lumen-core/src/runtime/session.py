@@ -17,6 +17,8 @@ from ..tools.models import CommandRiskLevel
 from ..persona.jarvis import format_context_with_memories
 from ..router.model_router import ModelRouter
 from ..consolidation.daemon import ConsolidationDaemon
+from ..concurrency.models import TaskCheckpoint, CancellationToken
+from ..research.agent import DeepResearchAgent
 
 
 def classify_preference(text: str) -> tuple[str, str]:
@@ -71,6 +73,7 @@ class ConversationSession:
         runner: SandboxedRunner | None = None,
         approvals: ApprovalManager | None = None,
         consolidation_daemon: ConsolidationDaemon | None = None,
+        research_agent: DeepResearchAgent | None = None,
     ):
         self.conversation_id = conversation_id or f"conv_{uuid.uuid4().hex[:8]}"
         self.memory = memory_client or MemoryServiceClient()
@@ -85,6 +88,7 @@ class ConversationSession:
             vault_sync=self.vault,
             supervisor=self.supervisor,
         )
+        self.research = research_agent or DeepResearchAgent()
         self.history: list[dict[str, str]] = []
 
     async def spawn_background_task(
@@ -238,6 +242,70 @@ class ConversationSession:
                     f"   • Fact ID: `{r.get('id')}`"
                 )
             yield "\n".join(lines)
+            return
+
+        if trimmed.startswith("/research "):
+            topic = trimmed.split(" ", 1)[1].strip()
+            if not topic:
+                yield "Please specify a research topic, Sir. Example: `/research PostgreSQL 1536 vector latency`"
+                return
+
+            async def _research_worker(t: str, token: CancellationToken, checkpoint_cb: Any):
+                dossier = await self.research.run_research(t, token=token, checkpoint_cb=checkpoint_cb)
+                path = self.vault.export_research_dossier(dossier)
+                # Stage top claims into review queue as Tier-B knowledge proposals
+                for c in dossier.claims[:4]:
+                    try:
+                        await self.memory.propose_triple(
+                            subject=t.title()[:50],
+                            predicate="EVIDENCE_FOR",
+                            object_name=c.claim[:100],
+                            source_event_id=f"research_{path.stem}",
+                            valid_from=None
+                        )
+                    except Exception:
+                        pass
+                return f"Research dossier compiled at {path}"
+
+            task_id = await self.spawn_background_task(
+                f"Deep Research: {topic[:30]}",
+                _research_worker,
+                topic,
+            )
+            yield (
+                f"👁️ [Lumen 'The Eyes'] Dispatched autonomous deep research task for: '{topic}'\n"
+                f"• Task ID: `{task_id}`\n"
+                f"• Search Surfaces: Web (DuckDuckGo), Developer Debates (Hacker News, Reddit), Primary Science (arXiv)\n"
+                f"• Exploration Depth: 2-hop recursive citation graph traversal into un-SEO resources\n"
+                f"• Quarantine Shield: Active (neutralizing prompt injection attempts)\n\n"
+                f"You can continue chatting immediately, Sir. Track live progress anytime via `/tasks`."
+            )
+            return
+
+        if trimmed == "/dossiers":
+            files = list(self.vault.research_dir.glob("*.md"))
+            if not files:
+                yield "No research dossiers have been generated yet, Sir. Use `/research <topic>` to dispatch an investigation."
+                return
+            lines = [f"📚 Obsidian Research Dossiers ({len(files)} compiled):"]
+            for f in sorted(files, key=lambda x: x.stat().st_mtime, reverse=True):
+                lines.append(f"• `{f.stem}`: {f.name} (file://{f.resolve()})")
+            lines.append("\nRead full dossier anytime via `/dossier <name>`.")
+            yield "\n".join(lines)
+            return
+
+        if trimmed.startswith("/dossier "):
+            slug = trimmed.split(" ", 1)[1].strip().lower().replace(".md", "")
+            target = self.vault.research_dir / f"{slug}.md"
+            if not target.exists():
+                matches = list(self.vault.research_dir.glob(f"*{slug}*.md"))
+                if matches:
+                    target = matches[0]
+                else:
+                    yield f"Could not find a research dossier matching '{slug}'. Use `/dossiers` to list available notes."
+                    return
+            content = target.read_text(encoding="utf-8")
+            yield f"📄 Research Dossier: {target.name}\n\n{content}"
             return
 
         if trimmed == "/approvals":

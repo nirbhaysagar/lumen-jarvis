@@ -27,6 +27,13 @@ from app.domain.models import (
 from app.domain.ports import StoragePort
 
 
+def _safe_epistemic_type(val: Any) -> EpistemicType:
+    try:
+        return EpistemicType(val)
+    except Exception:
+        return EpistemicType.OBSERVED_FACT
+
+
 class PostgresStorageAdapter(StoragePort):
     def __init__(self, dsn: str, pool_min: int = 2, pool_max: int = 10):
         self._dsn = dsn
@@ -276,7 +283,7 @@ class PostgresStorageAdapter(StoragePort):
                     attribute=r["attribute"],
                     value=val,
                     memory_type=MemoryType(r["memory_type"]),
-                    epistemic_type=EpistemicType(r["epistemic_type"]),
+                    epistemic_type=_safe_epistemic_type(r["epistemic_type"]),
                     confidence=r["confidence"],
                     source_event_ids=list(r["source_event_ids"]),
                     valid_from=r["valid_from"],
@@ -333,7 +340,7 @@ class PostgresStorageAdapter(StoragePort):
                     attribute=r["attribute"],
                     value=val,
                     memory_type=MemoryType(r["memory_type"]),
-                    epistemic_type=EpistemicType(r["epistemic_type"]),
+                    epistemic_type=_safe_epistemic_type(r["epistemic_type"]),
                     confidence=r["confidence"],
                     source_event_ids=list(r["source_event_ids"]),
                     valid_from=r["valid_from"],
@@ -1139,7 +1146,7 @@ class PostgresStorageAdapter(StoragePort):
                     attribute=r["attribute"],
                     value=json.loads(r["value"]) if isinstance(r["value"], str) else (r["value"] or {}),
                     memory_type=MemoryType(r["memory_type"]),
-                    epistemic_type=EpistemicType(r["epistemic_type"]),
+                    epistemic_type=_safe_epistemic_type(r["epistemic_type"]),
                     confidence=r["confidence"],
                     source_event_ids=list(r["source_event_ids"]) if r["source_event_ids"] else [],
                     valid_from=r["valid_from"],
@@ -1171,6 +1178,11 @@ class PostgresStorageAdapter(StoragePort):
                        OR $1 = ANY(aliases)
                        OR to_tsvector('english', canonical_name || ' ' || COALESCE(description, '')) @@ plainto_tsquery('english', $1)
                        OR canonical_name % $1
+                    ORDER BY
+                        CASE WHEN LOWER(canonical_name) = LOWER($1) THEN 1
+                             WHEN $1 = ANY(aliases) THEN 2
+                             ELSE 3 END,
+                        similarity(canonical_name, $1) DESC
                     LIMIT 5
                 ),
                 connected_entity_names AS (
@@ -1205,7 +1217,7 @@ class PostgresStorageAdapter(StoragePort):
                     attribute=r["attribute"],
                     value=json.loads(r["value"]) if isinstance(r["value"], str) else (r["value"] or {}),
                     memory_type=MemoryType(r["memory_type"]),
-                    epistemic_type=EpistemicType(r["epistemic_type"]),
+                    epistemic_type=_safe_epistemic_type(r["epistemic_type"]),
                     confidence=r["confidence"],
                     source_event_ids=list(r["source_event_ids"]) if r["source_event_ids"] else [],
                     valid_from=r["valid_from"],

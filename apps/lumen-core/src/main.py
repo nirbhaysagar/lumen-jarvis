@@ -51,6 +51,9 @@ async def main():
     else:
         print("Cognitive Engine: Local JARVIS Offline Protocol (Add OPENAI_API_KEY or GROQ_API_KEY to .env for live LLM generation).")
     print("Commands:")
+    print("  • /research <topic> - Autonomous Multi-Source Deep Research ('The Eyes')")
+    print("  • /dossiers        - List generated intelligence dossiers in Obsidian Vault")
+    print("  • /dossier <name>  - View research dossier findings, quotes & citations")
     print("  • /search <query>  - Unified Hybrid Search (BM25 + pgvector + Graph RRF)")
     print("  • /consolidate     - Run on-demand Knowledge Graph consolidation patrol")
     print("  • /digest          - View latest Morning Intelligence Digest briefing")
