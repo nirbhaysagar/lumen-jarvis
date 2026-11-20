@@ -126,30 +126,20 @@ class ModelRouter:
                         "tool_calls": choice.get("tool_calls") or [],
                     }
                 elif res.status_code == 429:
-                    logger.warning(f"Groq {model} rate limited (429). Attempting fast failover to gpt-oss-20b...")
-                    if "120b" in model:
-                        payload["model"] = "openai/gpt-oss-20b"
-                        res2 = await client.post(base_url, headers=headers, json=payload)
-                        if res2.status_code == 200:
-                            data = res2.json()
+                    logger.warning(f"Groq {model} rate limited (429). Attempting fast failover & exponential backoff...")
+                    payload["model"] = "openai/gpt-oss-20b"
+                    for attempt in range(1, 4):
+                        await asyncio.sleep(attempt * 1.5)
+                        retry_res = await client.post(base_url, headers=headers, json=payload)
+                        if retry_res.status_code == 200:
+                            data = retry_res.json()
                             choice = data.get("choices", [{}])[0].get("message", {})
                             return {
                                 "role": "assistant",
                                 "content": choice.get("content") or "",
                                 "tool_calls": choice.get("tool_calls") or [],
                             }
-                    # If still 429 or other model, wait 2 seconds and retry once
-                    await asyncio.sleep(2.0)
-                    res3 = await client.post(base_url, headers=headers, json=payload)
-                    if res3.status_code == 200:
-                        data = res3.json()
-                        choice = data.get("choices", [{}])[0].get("message", {})
-                        return {
-                            "role": "assistant",
-                            "content": choice.get("content") or "",
-                            "tool_calls": choice.get("tool_calls") or [],
-                        }
-                    logger.error(f"Provider Error after retry {res3.status_code}: {res3.text}")
+                    logger.error(f"Provider Error after retries: {res.text}")
                     return await self._create_offline_completion(messages, tools)
                 else:
                     logger.error(f"Provider Error {res.status_code}: {res.text}")

@@ -56,10 +56,12 @@ AGENT_TOOLS = [
         "function": {
             "name": "analyst_engine",
             "description": (
-                "PRIMARY tool for quantitative data analysis, statistical computation (CAGR, growth, totals), "
-                "financial metrics, and generating publication-quality dark-mode charts using Pandas and Matplotlib in a persistent kernel. "
-                "Invoke whenever the user asks to plot, graph, chart, visualize, or analyze numbers, revenue trajectories, "
-                "stock comparisons, or visual data trends. Do NOT use computer_control for plotting or data analysis."
+                "PRIMARY tool for quantitative data analysis, financial metrics, and generating publication-quality dark-mode charts "
+                "using Pandas and Matplotlib in a persistent kernel. Invoke whenever the user asks to plot, graph, chart, visualize, "
+                "or analyze numbers, statistics, revenue trajectories, or visual trends — even if they say 'research and graph' or 'find data and plot', "
+                "because analyst_engine performs live web research automatically. Do NOT call deep_research when a graph, plot, or chart is requested. "
+                "DO NOT invoke for dramatic, literary, or narrative plotting (e.g. 'plot of Hamlet', 'plot a novel or narrative arc') — "
+                "only invoke for numeric, mathematical, or empirical data analysis."
             ),
             "parameters": {
                 "type": "object",
@@ -87,7 +89,7 @@ AGENT_TOOLS = [
             "description": (
                 "Conducts an in-depth autonomous multi-source web investigation across DuckDuckGo, Hacker News, Reddit, and arXiv. "
                 "Extracts quotes and citations, and compiles an Obsidian intelligence dossier. Invoke for investigative queries, "
-                "complex non-visual research topics, or background fact-finding."
+                "complex non-visual research topics, or background fact-finding. Do NOT use if a chart, plot, or graph is requested."
             ),
             "parameters": {
                 "type": "object",

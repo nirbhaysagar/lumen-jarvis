@@ -139,7 +139,7 @@ async def test_plain_chat_zero_tool_eval(prompt: str):
 
 TYPO_CASES = [
     ("genearte grph for gta 5 revneue so far", "analyst_engine", "deep_research"),
-    ("analize revnue trajectory of apple stock 2020 to 2024", "analyst_engine", None),
+    ("analize revnue trajectory of apple stock 2020 to 2024", "analyst_engine", "deep_research"),
     ("reserch and plt Take-Two sales trend", "analyst_engine", "deep_research"),
     ("creat chrt of netflix subscriber growth over past 3 years", "analyst_engine", "deep_research"),
     ("vizualize US gdp grouth rate trajectory", "analyst_engine", None),
