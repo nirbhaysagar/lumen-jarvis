@@ -18,6 +18,7 @@
 | **Phase 5** | Knowledge Graph, Review Queue & Hybrid Retrieval | **COMPLETE** | 3-Table Schema (entities, triples, predicates), Two-Tier Entity Resolver, Review Queue Contradiction Gating, Transactional Outbox Pattern, Overnight Consolidation Daemon, Unified Hybrid RRF Search | Automated test suite (49/49 tests passed), Live REPL `/search`, `/consolidate`, `/digest`, `/outbox`, `/proposals`, `/graph` verified |
 | **Phase 6** | Autonomous Web & Deep Research ("The Eyes") | **COMPLETE** | Query De-Optimizer, Multi-Source Discovery (Web, HN Algolia, Reddit, arXiv), Anti-SEO Citation Walking, Prompt Injection Shield, Crawl4AI + MarkItDown, Obsidian Research Dossiers | Automated test suite (63/63 tests passed), Live REPL `/research`, `/dossiers`, `/dossier` verified |
 | **Phase 7** | Voice & Barge-in Gateway ("The Senses") | **COMPLETE** | Full-duplex WebSocket (`ws://0.0.0.0:8765/voice`), Silero VAD, EchoGate dynamic modulation, sub-50ms Barge-In Preemption, Syntactic Clause Chunking, Whisper STT + Neural TTS, Hands-Free openWakeWord Daemon ("Hey Jarvis") + Hann Acoustic Chimes | Automated test suite (15 voice/wake tests passed), Monorepo 82/82 tests green |
+| **Sentinel** | Autonomous Sentinel Daemon ("The Watchman") | **COMPLETE** | Tri-Vector Proactive System Inspection (Host Disk/RAM/CPU, Docker Containers, Git Workspace), Alert Deduplication Keying, Proactive Conversation Turn Prepending, Obsidian Incident Archiving | Automated sentinel test suite (7/7 passed), Monorepo 89/89 tests green |
 
 ---
 
@@ -39,6 +40,7 @@
 | **ADR-012** | Defense-in-Depth Security Hardening & Zero-Trust Crawling | Line-aware AST Lexer + SSRFGuard (IP/DNS/Redirect Gating) + Stream Ceilings (25MB) + DefusedXML + Vault Path Traversal Invariants | Naive regex-only matching, Unchecked HTTP redirects, Trusting local paths | Neutralizes multi-line shell injection delimiter evasion, eliminates SSRF/cloud metadata leaks, prevents memory exhaustion DoS, prevents XML entity expansion, and strictly confines note generation within vault root. |
 | **ADR-013** | Sub-Second Full-Duplex Voice Gateway, Echo Gate & Sub-50ms Barge-In Preemption | Discrete 16kHz PCM Framing + Silero VAD + Dynamic EchoGate ($\tau: 0.50 \to 0.85$, $E: -45 \to -28\text{ dBFS}$) + Syntactic Clause Chunker + Immediate Preemption Queue Flushing | Half-duplex turn-taking, Cloud monolithic audio APIs, Blind client-side VAD | Delivers natural conversational cadence with sub-250ms Time-to-First-Audio (TTFA); prevents Lumen from cutting himself off on his own speaker playback; preempts LLM generation and output audio in under 50ms upon genuine user speech onset. |
 | **ADR-014** | Ambient Hands-Free Wake-Word Daemon, openWakeWord Neural Model & Earcon Chimes | Two-State Ambient Machine (`DORMANT_LISTENING` vs `ACTIVE_CONVERSATION`) + Low-Power ONNX Model (`hey_jarvis`, 1280 samples / 80ms) + Hann-Enveloped Synthesized Chimes (Ascending D5 $\to$ A5, Descending A5 $\to$ D5) + Automatic Idle Silence Watchdog | Continuous cloud STT streaming, OS hotkeys alone | True hands-free ambient computing at <2% CPU usage without privacy exposure or battery exhaustion; provides crisp acoustic feedback earcons without external audio assets. |
+| **ADR-015** | Autonomous Sentinel Daemon ("The Watchman") & Tri-Vector Proactive System Inspection | Multi-Probe Concurrent Async Polling (`psutil` host resources, async Docker JSON inspection, Git porcelain status) + Alert Deduplication Keying + Proactive Turn Prepending + Immutable Incident Vault Archiving (`vault/sentinel/latest.md`) | Synchronous CLI polling, External Prometheus/Grafana stack alone, Blind alert spam | Grants Lumen continuous operational self-awareness to proactively detect degraded infrastructure, crashed databases, and uncommitted code before the operator asks, while preventing notification fatigue through state-based alert deduplication. |
 
 ---
 
@@ -368,6 +370,35 @@
   - `apps/lumen-core/tests/test_wake_word_daemon.py`: 5 passing tests in **2.37s** (chime synthesis, refractory period gating, neural ONNX inference, state transitions, speech watchdog refreshing).
   - Monorepo test suite: **82/82 automated tests green (100%)** (66 `lumen-core`, 16 `memory-engine`).
 
+### Autonomous Sentinel Daemon ("The Watchman" — Proactive System Awareness)
+- **Technique:** Tri-Vector Proactive System Inspection with Alert Deduplication & Vault Incident Archiving.
+- **Architectural Specification:** ADR-015.
+- **Probes & Monitored Vectors:**
+  1. **System Resource Probe (`system.py`):**
+     - Host filesystem disk space (`/` and workspace partitions) via `psutil`. Thresholds: Warning $\ge 85\%$, Critical $\ge 95\%$.
+     - Host virtual memory (RAM pressure & available GB). Thresholds: Warning $\ge 88\%$, Critical $\ge 96\%$.
+     - CPU utilization sampling and logical core workload tracking.
+  2. **Docker Health Probe (`docker.py`):**
+     - Asynchronous non-blocking inspection of Docker daemon (`docker ps -a --format "{{json .}}"`).
+     - Healthcheck evaluation (`healthy` vs `unhealthy`), crashloop detection (`restarting`), and unexpected exit monitoring for core infrastructure (`lumen-postgres`, `lumen-redis`).
+  3. **Git Workspace Probe (`git.py`):**
+     - Branch topology, Detached HEAD detection, and working copy dirtiness (staged, unstaged, untracked counts) via `git status --porcelain -b`.
+- **Alert Deduplication & Operator Gating:**
+  - Stable keying (`category:title`) prevents repeating alert notifications across subsequent patrol ticks.
+  - Automatically emits `Incident Resolved: <key>` when a previously critical condition returns to normal baseline.
+  - Prepend hook in `ConversationSession.process_turn()` proactively surfaces warnings on the very next operator turn.
+- **Obsidian Vault Reports & Incident Log:**
+  - Every patrol overwrites `vault/sentinel/latest.md` with physical resource metrics, Docker container tables, and Git topology.
+  - Incidents triggering Warning or Critical alerts archive immutable notes to `vault/sentinel/incidents/incident_YYYY-MM-DD_HHMMSS_{id}.md`.
+- **REPL Commands:**
+  - `/sentinel`: Launch background autonomous patrol (default 60s cadence).
+  - `/sentinel-status`: View live multi-vector diagnostic matrix.
+  - `/sentinel-check`: Trigger on-demand immediate diagnostic patrol.
+  - `/sentinel-stop`: Stop background patrol.
+- **Verification & Test Results:**
+  - `apps/lumen-core/tests/test_sentinel_daemon.py`: 7 passing tests in **3.73s** (system probe, docker probe, git probe, vault report export, alert deduplication & resolution, lifecycle, session turn alert prepending).
+  - Monorepo test suite: **89/89 automated tests green (100%)** (73 `lumen-core`, 16 `memory-engine`).
+
 ---
 
 ## 🗺️ 4. What We Are Building Next (Roadmap Checklist)
@@ -403,3 +434,9 @@
   - [x] openWakeWord hands-free ambient activation ("Hey Jarvis" / "Hey Lumen") with sounddevice mic capture.
   - [x] Acoustic Earcon Chime synthesis (Hann window shaped ascending wake and descending sleep earcons).
   - [x] Terminal REPL integration (`/voice`, `/voice-status`, `/voice-stop`, `/listen`, `/listen-status`, `/listen-stop`).
+- [x] **Autonomous Sentinel Daemon ("The Watchman") — COMPLETE:**
+  - [x] Tri-vector system health monitoring (Host Disk/RAM/CPU, Docker Containers, Git Workspace cleanliness).
+  - [x] State-based alert deduplication preventing notification fatigue.
+  - [x] Proactive turn warning prepending in conversation session.
+  - [x] Obsidian Vault health reporting (`vault/sentinel/latest.md`) and immutable incident logging.
+  - [x] Interactive REPL commands (`/sentinel`, `/sentinel-status`, `/sentinel-check`, `/sentinel-stop`).

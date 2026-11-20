@@ -31,6 +31,8 @@ class ObsidianVaultSync:
         self.entities_dir = self.vault_path / "entities"
         self.digests_dir = self.vault_path / "digests"
         self.research_dir = self.vault_path / "research"
+        self.sentinel_dir = self.vault_path / "sentinel"
+        self.sentinel_incidents_dir = self.sentinel_dir / "incidents"
 
         self._ensure_directories()
 
@@ -41,6 +43,8 @@ class ObsidianVaultSync:
         self.entities_dir.mkdir(parents=True, exist_ok=True)
         self.digests_dir.mkdir(parents=True, exist_ok=True)
         self.research_dir.mkdir(parents=True, exist_ok=True)
+        self.sentinel_dir.mkdir(parents=True, exist_ok=True)
+        self.sentinel_incidents_dir.mkdir(parents=True, exist_ok=True)
 
     def _wikilinkify(self, text: str) -> str:
         """Adds wikilinks to recognized technologies, programming languages, and entities."""
@@ -429,6 +433,128 @@ tags:
         filepath.write_text(content.strip() + "\n", encoding="utf-8")
         return filepath
 
+    def export_sentinel_report(self, report: Any) -> Path:
+        """
+        Exports an Autonomous Sentinel Patrol Report into Obsidian Vault under vault/sentinel/latest.md.
+        If warning or critical findings are detected, also archives an incident note.
+        """
+        if hasattr(report, "model_dump"):
+            data = report.model_dump(mode="json")
+        elif isinstance(report, dict):
+            data = report
+        else:
+            data = vars(report)
+
+        patrol_id = data.get("patrol_id", "patrol")
+        raw_status = data.get("overall_status", "ok")
+        if hasattr(raw_status, "value"):
+            raw_status = raw_status.value
+        status = str(raw_status).upper()
+        ts = data.get("timestamp", datetime.now(timezone.utc).timestamp())
+        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+        iso_str = dt.isoformat()
+
+        findings = data.get("findings", [])
+        system = data.get("system_metrics", {})
+        containers = data.get("containers_monitored", [])
+        git_info = data.get("git_status", {})
+        duration_ms = data.get("duration_ms", 0.0)
+
+        disk = system.get("disk", {})
+        ram = system.get("memory", {})
+        cpu = system.get("cpu", {})
+
+        # Build findings markdown
+        findings_lines = []
+        for f in findings:
+            f_title = f.get("title", "")
+            raw_sev = f.get("severity", "info")
+            if hasattr(raw_sev, "value"):
+                raw_sev = raw_sev.value
+            f_sev = str(raw_sev).upper()
+            f_det = f.get("details", "")
+            f_rec = f.get("recommendation", "")
+
+            badge = "🚨 [CRITICAL]" if f_sev == "CRITICAL" else ("⚠️ [WARNING]" if f_sev == "WARNING" else "ℹ️ [INFO]")
+            rec_line = f"\n  > 👉 **Action:** {f_rec}" if f_rec else ""
+            findings_lines.append(f"* **{badge} {f_title}**\n  > {f_det}{rec_line}")
+
+        findings_block = "\n".join(findings_lines) if findings_lines else "* All system metrics within operational baseline. Zero anomalies detected."
+
+        # Build containers table
+        container_rows = []
+        for c in containers:
+            c_name = c.get("name", "")
+            c_state = c.get("state", "").upper()
+            c_health = c.get("health", "").upper()
+            c_status = c.get("status", "")
+            container_rows.append(f"| `{c_name}` | `{c_state}` | `{c_health}` | {c_status} |")
+
+        containers_table = (
+            "| Container | State | Health | Details |\n| :--- | :--- | :--- | :--- |\n" + "\n".join(container_rows)
+            if container_rows else "* No active or managed Docker containers detected."
+        )
+
+        content = f"""---
+title: "Sentinel Health Patrol: {dt.strftime('%Y-%m-%d %H:%M:%S')}"
+patrol_id: "{patrol_id}"
+timestamp: "{iso_str}"
+overall_status: "{status}"
+duration_ms: {duration_ms:.2f}
+alert_count: {len(findings)}
+tags:
+  - type/sentinel
+  - status/{status.lower()}
+---
+
+# 🛡️ Sentinel System Patrol Report (`{status}`)
+
+* **Patrol ID:** `{patrol_id}`
+* **Conducted:** {dt.strftime('%Y-%m-%d %H:%M:%S UTC')} ({duration_ms:.1f}ms scan)
+* **Overall Posture:** `{status}`
+
+---
+
+### 💻 Physical Host Resources
+* **Disk (`/`):** `{disk.get('percent', 0.0)}%` utilized ({disk.get('free_gb', 0.0)} GB free / {disk.get('total_gb', 0.0)} GB total)
+* **Memory (RAM):** `{ram.get('percent', 0.0)}%` utilized ({ram.get('available_gb', 0.0)} GB available / {ram.get('total_gb', 0.0)} GB total)
+* **CPU Load:** `{cpu.get('percent', 0.0)}%` ({cpu.get('logical_cores', 1)} cores)
+
+---
+
+### 🐳 Managed Infrastructure Containers
+{containers_table}
+
+---
+
+### 🌿 Git Workspace State
+* **Branch:** `{git_info.get('branch', 'unknown')}` ({'DETACHED HEAD' if git_info.get('is_detached') else 'Normal tracking'})
+* **Status:** {'CLEAN' if git_info.get('is_clean') else f"DIRTY ({git_info.get('staged_count', 0)} staged, {git_info.get('unstaged_count', 0)} unstaged, {git_info.get('untracked_count', 0)} untracked)"}
+
+---
+
+### 🔍 Patrol Findings & Recommendations
+{findings_block}
+
+---
+*Autonomous background patrol conducted by Lumen Sentinel Daemon ("The Watchman").*
+"""
+        # Save to latest.md
+        latest_file = self.sentinel_dir / "latest.md"
+        latest_file.write_text(content.strip() + "\n", encoding="utf-8")
+
+        # If warnings or critical findings, write an immutable incident note
+        has_alerts = any(
+            (f.get("severity").value if hasattr(f.get("severity"), "value") else str(f.get("severity"))).lower() in ("warning", "critical")
+            for f in findings
+        )
+        if has_alerts:
+            stamp = dt.strftime("%Y-%m-%d_%H%M%S")
+            incident_file = self.sentinel_incidents_dir / f"incident_{stamp}_{patrol_id[:8]}.md"
+            incident_file.write_text(content.strip() + "\n", encoding="utf-8")
+
+        return latest_file
+
     def get_vault_stats(self) -> dict[str, int]:
         """Returns counts of generated Markdown files across vault categories."""
         return {
@@ -438,5 +564,6 @@ tags:
             "daily": len(list(self.daily_dir.glob("*.md"))),
             "digests": len(list(self.digests_dir.glob("*.md"))),
             "research": len(list(self.research_dir.glob("*.md"))),
+            "sentinel": len(list(self.sentinel_dir.glob("*.md"))) + len(list(self.sentinel_incidents_dir.glob("*.md"))),
             "total_notes": len(list(self.vault_path.rglob("*.md"))),
         }

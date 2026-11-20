@@ -22,6 +22,7 @@ from ..research.agent import DeepResearchAgent
 from ..voice.gateway import VoiceGateway
 from ..voice.pipeline import VoicePipelineCoordinator
 from ..voice.daemon import WakeWordDaemon
+from ..sentinel.daemon import SentinelDaemon
 
 
 def classify_preference(text: str) -> tuple[str, str]:
@@ -79,6 +80,7 @@ class ConversationSession:
         research_agent: DeepResearchAgent | None = None,
         voice_gateway: VoiceGateway | None = None,
         wake_word_daemon: WakeWordDaemon | None = None,
+        sentinel_daemon: SentinelDaemon | None = None,
     ):
         self.conversation_id = conversation_id or f"conv_{uuid.uuid4().hex[:8]}"
         self.memory = memory_client or MemoryServiceClient()
@@ -100,6 +102,7 @@ class ConversationSession:
         self.wake_daemon = wake_word_daemon or WakeWordDaemon(
             coordinator=self.voice.coordinator
         )
+        self.sentinel = sentinel_daemon or SentinelDaemon(vault_sync=self.vault)
         self.history: list[dict[str, str]] = []
 
     async def spawn_background_task(
@@ -583,7 +586,55 @@ class ConversationSession:
                 yield "Wake-Word Daemon is not currently active."
             return
 
-        # 1. Announce any completed or failed background tasks
+        if trimmed == "/sentinel":
+            if not self.sentinel.is_running:
+                try:
+                    await self.sentinel.start()
+                    yield (
+                        f"🛡️ [Autonomous Sentinel Daemon Engaged ('The Watchman')]\n"
+                        f"• Status: Background system patrol active (Cadence: {self.sentinel.interval_sec}s)\n"
+                        f"• Monitored Vectors: Host Disk, RAM, CPU, Docker Containers, Git Workspace\n"
+                        f"• Proactive Defense: Deduplicated alerts will be announced on discovery\n"
+                        f"• Vault Archive: Reports stored at vault/sentinel/latest.md"
+                    )
+                except Exception as e:
+                    yield f"⚠️ Could not start Sentinel Daemon: {e}"
+            else:
+                yield f"🛡️ Sentinel Daemon is already running in state: `{self.sentinel.state.value}`."
+            return
+
+        if trimmed == "/sentinel-status":
+            yield self.sentinel.get_summary_text()
+            return
+
+        if trimmed == "/sentinel-check":
+            yield "🛡️ Initiating on-demand full-system diagnostic patrol...\n\n"
+            report = await self.sentinel.run_patrol()
+            yield self.sentinel.get_summary_text()
+            return
+
+        if trimmed == "/sentinel-stop":
+            if self.sentinel.is_running:
+                await self.sentinel.stop()
+                yield "🛡️ Sentinel Daemon has been stopped."
+            else:
+                yield "Sentinel Daemon is not currently active."
+            return
+
+        # 1. Announce any proactive Sentinel alerts
+        sentinel_alerts = await self.sentinel.poll_pending_alerts()
+        if sentinel_alerts:
+            alert_lines = ["🛡️ [Sentinel Proactive Security & Health Warning]"]
+            for a in sentinel_alerts:
+                badge = "🚨 [CRITICAL]" if a.severity.value == "critical" else (
+                    "⚠️ [WARNING]" if a.severity.value == "warning" else "ℹ️ [INFO]"
+                )
+                alert_lines.append(f"• {badge} {a.title}: {a.details}")
+                if a.recommendation:
+                    alert_lines.append(f"  👉 Action: {a.recommendation}")
+            yield "\n".join(alert_lines) + "\n\n"
+
+        # 2. Announce any completed or failed background tasks
         notifications = await self.poll_notifications()
         if notifications:
             announcements = []
@@ -591,7 +642,7 @@ class ConversationSession:
                 announcements.append(f"⚡ [System Notice] Background task '{n.name}' ({n.task_id}) reached state: {n.state.value}.")
             yield "\n".join(announcements) + "\n\n"
 
-        # 2. Unified Hybrid Memory Retrieval (BM25 + pgvector + Graph RRF)
+        # 3. Unified Hybrid Memory Retrieval (BM25 + pgvector + Graph RRF)
         memories = await self.memory.search(
             query=user_text,
             limit=4,

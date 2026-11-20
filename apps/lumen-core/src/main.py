@@ -41,16 +41,20 @@ async def main():
     outbox_worker = OutboxWorker(memory_client=memory_client, vault_sync=session.vault)
     await outbox_worker.start()
     await session.consolidation.start()
+    await session.sentinel.start()
 
     print("Status: Connected to Memory Engine (PostgreSQL + pgvector).")
     print("Outbox: Transactional Outbox Worker active (PostgreSQL LISTEN/NOTIFY ↔ Obsidian Vault).")
     print("Super-Brain: Overnight Consolidation Daemon active (Patrols contradictions & compiles morning digest).")
+    print("Sentinel: Autonomous Sentinel Daemon active ('The Watchman' monitoring Disk, Docker & Git).")
     print("Concurrency: Task Supervisor active with MAX_PARALLEL_TASKS = 4 (Postgres Checkpointing).")
     if session.router.active_provider:
         print(f"Cognitive Engine: Live Streaming [{session.router.active_provider.upper()}]")
     else:
         print("Cognitive Engine: Local JARVIS Offline Protocol (Add OPENAI_API_KEY or GROQ_API_KEY to .env for live LLM generation).")
     print("Commands:")
+    print("  • /sentinel-status - View live Sentinel health matrix (Disk, RAM, Docker, Git)")
+    print("  • /sentinel-check  - Run on-demand diagnostic patrol")
     print("  • /listen          - Hands-Free Ambient Listening (Say 'Hey Jarvis' to wake)")
     print("  • /listen-status   - View wake-word daemon state & trigger metrics")
     print("  • /listen-stop     - Stop hands-free ambient listening")
@@ -112,6 +116,7 @@ async def main():
 
     await session.wake_daemon.stop()
     await session.voice.stop()
+    await session.sentinel.stop()
     await session.consolidation.stop()
     await outbox_worker.stop()
     await supervisor.shutdown()
