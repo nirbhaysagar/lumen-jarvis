@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# Lumen CLI Launcher
+# Usage:
+#   ./lumen               -> Interactive Chat & Cognitive REPL
+#   ./lumen --listen      -> Ambient Hands-Free Wake-Word Daemon ("Hey Jarvis")
+#   ./lumen --help        -> Display options
+# ==============================================================================
+set -e
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+export PYTHONPATH="$DIR/apps/lumen-core:$DIR/packages/memory-engine:$PYTHONPATH"
+
+exec "$DIR/.venv/bin/python" "$DIR/apps/lumen-core/src/main.py" "$@"

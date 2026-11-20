@@ -69,6 +69,89 @@ class MockNeuralTTS(TTSProvider):
         return frames
 
 
+class NativeMacTTS(TTSProvider):
+    """
+    Native macOS Neural / Speech Synthesizer (British JARVIS voice 'Daniel').
+    Produces authentic 16kHz 16-bit linear PCM audio with zero cloud cost and low latency.
+    Falls back to MockNeuralTTS if not on macOS or command fails.
+    """
+
+    def __init__(
+        self,
+        voice: str = "Daniel",
+        sample_rate: int = 16000,
+        frame_duration_ms: float = 30.0,
+    ):
+        self.voice = voice
+        self.sample_rate = sample_rate
+        self.frame_duration_ms = frame_duration_ms
+        self._samples_per_frame = int(sample_rate * (frame_duration_ms / 1000.0))
+        self._bytes_per_frame = self._samples_per_frame * 2
+        self._fallback = MockNeuralTTS(sample_rate=sample_rate, frame_duration_ms=frame_duration_ms)
+
+    @property
+    def name(self) -> str:
+        return f"NativeMacTTS({self.voice})"
+
+    async def synthesize(self, text: str) -> List[AudioFrame]:
+        clean_text = text.strip()
+        if not clean_text:
+            return []
+
+        import sys, tempfile, os, wave
+
+        if sys.platform != "darwin":
+            return await self._fallback.synthesize(clean_text)
+
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
+            wav_path = tf.name
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "say",
+                "-v",
+                self.voice,
+                "-o",
+                wav_path,
+                f"--data-format=LEI16@{self.sample_rate}",
+                clean_text,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await proc.wait()
+
+            if os.path.exists(wav_path) and os.path.getsize(wav_path) > 44:
+                with wave.open(wav_path, "rb") as wf:
+                    pcm_bytes = wf.readframes(wf.getnframes())
+
+                frames: List[AudioFrame] = []
+                idx = 0
+                while idx < len(pcm_bytes):
+                    chunk = pcm_bytes[idx : idx + self._bytes_per_frame]
+                    if len(chunk) < self._bytes_per_frame:
+                        chunk = chunk + b"\x00" * (self._bytes_per_frame - len(chunk))
+                    frames.append(
+                        AudioFrame(
+                            data=chunk,
+                            sample_rate=self.sample_rate,
+                            duration_ms=self.frame_duration_ms,
+                            timestamp_ms=time.time() * 1000.0,
+                        )
+                    )
+                    idx += self._bytes_per_frame
+                return frames
+            else:
+                return await self._fallback.synthesize(clean_text)
+        except Exception:
+            return await self._fallback.synthesize(clean_text)
+        finally:
+            if os.path.exists(wav_path):
+                try:
+                    os.remove(wav_path)
+                except Exception:
+                    pass
+
+
 class AudioOutputPlayer:
     """
     Manages audio playback queue and communicates playback state to EchoGate.

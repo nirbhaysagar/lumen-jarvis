@@ -15,7 +15,7 @@ class WakeWordDetector:
     def __init__(
         self,
         model_name: str = "hey_jarvis",
-        threshold: float = 0.50,
+        threshold: float = 0.40,
         refractory_sec: float = 2.0,
         simulated: bool = False,
     ):

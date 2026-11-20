@@ -3,7 +3,9 @@ Conversation Session & Context Orchestrator.
 Glues together Memory Engine retrieval, LiteLLM routing, and True Concurrency Task Supervisor.
 """
 from __future__ import annotations
+import os
 import re
+import sys
 import uuid
 from typing import Any, AsyncGenerator, Callable, Coroutine
 from ..concurrency.models import TaskCheckpoint
@@ -22,6 +24,8 @@ from ..research.agent import DeepResearchAgent
 from ..voice.gateway import VoiceGateway
 from ..voice.pipeline import VoicePipelineCoordinator
 from ..voice.daemon import WakeWordDaemon
+from ..voice.stt import WhisperSTTProvider, MockSTTProvider
+from ..voice.tts import NativeMacTTS, MockNeuralTTS
 from ..sentinel.daemon import SentinelDaemon
 
 
@@ -96,8 +100,14 @@ class ConversationSession:
             supervisor=self.supervisor,
         )
         self.research = research_agent or DeepResearchAgent()
+        stt_instance = WhisperSTTProvider() if (os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")) else MockSTTProvider()
+        tts_instance = NativeMacTTS() if sys.platform == "darwin" else MockNeuralTTS()
         self.voice = voice_gateway or VoiceGateway(
-            coordinator=VoicePipelineCoordinator(turn_handler=self.process_turn)
+            coordinator=VoicePipelineCoordinator(
+                turn_handler=self.process_turn,
+                stt=stt_instance,
+                tts=tts_instance,
+            )
         )
         self.wake_daemon = wake_word_daemon or WakeWordDaemon(
             coordinator=self.voice.coordinator

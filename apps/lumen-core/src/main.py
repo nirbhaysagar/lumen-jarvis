@@ -52,6 +52,35 @@ async def main():
         print(f"Cognitive Engine: Live Streaming [{session.router.active_provider.upper()}]")
     else:
         print("Cognitive Engine: Local JARVIS Offline Protocol (Add OPENAI_API_KEY or GROQ_API_KEY to .env for live LLM generation).")
+
+    # Wire visual event listeners for terminal feedback
+    def on_wake_event(evt):
+        if evt.get("event") == "wake_word_triggered":
+            print(f"\n🔔 [Wake Word Detected: 'Hey Jarvis' | Listening...]", flush=True)
+        elif evt.get("event") == "state_change" and evt.get("to") == "dormant_listening":
+            print(f"\n💤 [Voice Sleep: Returning to dormant listening. Say 'Hey Jarvis' to wake.]\nYou ❯ ", end="", flush=True)
+
+    def on_pipeline_event(evt):
+        if evt.get("event") == "transcript":
+            print(f"\nYou (Voice) ❯ {evt.get('text')}\nLumen ❯ ", end="", flush=True)
+        elif evt.get("event") == "barge_in":
+            print(f"\n⚡ [Barge-In Detected: Playback preempted]\nYou ❯ ", end="", flush=True)
+
+    session.wake_daemon.add_listener(on_wake_event)
+    session.voice.coordinator.add_listener(on_pipeline_event)
+
+    # Check CLI flags
+    if "--listen" in sys.argv:
+        print("\n🎙️ [Hands-Free Ambient Wake-Word Engaged]")
+        try:
+            await session.wake_daemon.start()
+            print("• Continuous microphone listening active.")
+            print("• Target: Say 'Hey Jarvis' or 'Hey Lumen' into your microphone.")
+            print("• State: DORMANT_LISTENING (Waiting for wake phrase...)")
+            print("• To stop, type /listen-stop or /exit\n")
+        except Exception as e:
+            print(f"⚠️ Could not start Wake-Word Daemon: {e}")
+
     print("Commands:")
     print("  • /sentinel-status - View live Sentinel health matrix (Disk, RAM, Docker, Git)")
     print("  • /sentinel-check  - Run on-demand diagnostic patrol")
