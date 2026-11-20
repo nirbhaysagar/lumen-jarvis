@@ -289,9 +289,8 @@ class ConversationSession:
                         await self.memory.propose_triple(
                             subject=t.title()[:50],
                             predicate="EVIDENCE_FOR",
-                            object_name=c.claim[:100],
+                            object_=c.claim[:100],
                             source_event_id=f"research_{path.stem}",
-                            valid_from=None
                         )
                     except Exception:
                         pass

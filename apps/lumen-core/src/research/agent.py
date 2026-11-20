@@ -66,12 +66,17 @@ class DeepResearchAgent:
                 if matches == 0:
                     continue
 
-                # Identify candidate claims (sentences with assertive verbs or metrics)
+                # Identify candidate claims (sentences with assertive verbs, findings, or metrics)
                 is_claim_like = any(indicator in lower_s for indicator in (
                     "because", "causes", "leads to", "degrades", "improves", "solves",
                     "recommended", "benchmark", "measured", "latency", "throughput",
                     "requires", "fails when", "fixed by", "instead of", "difference between",
-                    "index", "performance", "scales", "bottleneck", "optimization"
+                    "index", "performance", "scales", "bottleneck", "optimization",
+                    "revenue", "sales", "billion", "million", "reported", "earnings",
+                    "released", "launch", "confirmed", "announced", "projected", "forecast",
+                    "growth", "quarter", "fiscal", "cagr", "cost", "profit", "subscribers",
+                    "market share", "exceeded", "generated", "totaled", "stands at",
+                    "according to", "shows that", "found that", "indicates that", "$", "%"
                 ))
 
                 if is_claim_like and 25 < len(sentence) < 400:

@@ -185,6 +185,7 @@ class LumenAgentLoop:
         messages.append({"role": "user", "content": user_input})
 
         step = 0
+        executed_tool_calls: set[str] = set()
         while step < self.max_steps:
             step += 1
 
@@ -234,6 +235,18 @@ class LumenAgentLoop:
                 except Exception:
                     args = {"query": str(raw_args)}
 
+                call_sig = f"{name}:{json.dumps(args, sort_keys=True) if isinstance(args, dict) else str(args)}"
+                if call_sig in executed_tool_calls:
+                    yield f"⚠️ Tool `{name}` was already executed with identical parameters in a prior step. Proceeding to final synthesis.\n"
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": call_id,
+                        "name": name,
+                        "content": "Notice: Duplicate call. Findings already available above. Do not repeat; synthesize your final response.",
+                    })
+                    continue
+                executed_tool_calls.add(call_sig)
+
                 yield f"\n⚡ [Autonomous Agent Step {step}/{self.max_steps}] Invoking `{name}`...\n"
 
                 tool_result_str = ""
@@ -254,8 +267,9 @@ class LumenAgentLoop:
                     dossier = await self.session.research.run_research(topic)
                     path = self.session.vault.export_research_dossier(dossier)
                     yield f"💾 Research dossier compiled at: [`{path.name}`](file://{path.resolve()})\n"
-                    top_findings = "\n".join([f"• {c.claim}" for c in dossier.claims[:5]])
-                    tool_result_str = f"Research completed. Top findings:\n{top_findings}\nDossier saved at {path}"
+                    findings_list = [c.claim for c in dossier.claims[:5]] if dossier.claims else dossier.key_findings
+                    top_findings = "\n".join([f"• {f}" for f in findings_list])
+                    tool_result_str = f"Research completed. Key findings:\n{top_findings}\nDossier saved at {path}"
 
                 # Route C: Computer Control (with Two-Man Rule gate)
                 elif name == "computer_control":

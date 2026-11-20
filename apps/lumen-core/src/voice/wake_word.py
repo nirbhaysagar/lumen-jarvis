@@ -34,6 +34,15 @@ class WakeWordDetector:
 
     def _init_neural_model(self) -> None:
         """Initializes openWakeWord ONNX inference graph."""
+        import logging
+
+        class _TfliteWarningFilter(logging.Filter):
+            def filter(self, record: logging.LogRecord) -> bool:
+                return "tflite runtime" not in record.getMessage()
+
+        root_logger = logging.getLogger()
+        w_filter = _TfliteWarningFilter()
+        root_logger.addFilter(w_filter)
         try:
             import openwakeword
             from openwakeword.model import Model
@@ -50,6 +59,8 @@ class WakeWordDetector:
             # Fall back to simulated mode if openwakeword is missing or fails
             self.simulated = True
             self._model = None
+        finally:
+            root_logger.removeFilter(w_filter)
 
     def simulate_trigger(self) -> None:
         """Testing hook to force a wake-word trigger on next audio chunk."""
