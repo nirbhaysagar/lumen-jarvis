@@ -227,6 +227,25 @@ class ModelRouter:
                     }
                 ],
             }
+
+        if tools and any(t.get("function", {}).get("name") == "document_vault" for t in tools):
+            if any(kw in lowered for kw in ["ingest", "digest notes", "index folder", "index document", "ingest my notes"]):
+                m_path = re.search(r"(?:at|in|from|path|folder)\s+([~a-zA-Z0-9_\-\.\/]+)", last_msg)
+                target_p = m_path.group(1).strip() if m_path else "~/Documents"
+                return {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_mock_doc_vault",
+                            "type": "function",
+                            "function": {
+                                "name": "document_vault",
+                                "arguments": json.dumps({"path": target_p, "action": "ingest"}),
+                            },
+                        }
+                    ],
+                }
         return {
             "role": "assistant",
             "content": f"Understood, Sir: '{last_msg}'. All core sub-systems operational under local offline protocol.",

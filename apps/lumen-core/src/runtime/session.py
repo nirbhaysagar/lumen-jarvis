@@ -28,6 +28,7 @@ from ..voice.stt import WhisperSTTProvider, MockSTTProvider
 from ..voice.tts import NativeMacTTS, MockNeuralTTS
 from ..sentinel.daemon import SentinelDaemon
 from ..analytics.engine import AnalystEngine
+from ..vault.document_vault import DocumentVault
 from ..router.agent_loop import LumenAgentLoop
 
 
@@ -88,12 +89,14 @@ class ConversationSession:
         wake_word_daemon: WakeWordDaemon | None = None,
         sentinel_daemon: SentinelDaemon | None = None,
         analyst_engine: AnalystEngine | None = None,
+        document_vault: DocumentVault | None = None,
     ):
         self.conversation_id = conversation_id or f"conv_{uuid.uuid4().hex[:8]}"
         self.memory = memory_client or MemoryServiceClient()
         self.router = router or ModelRouter()
         self.supervisor = supervisor or TaskSupervisor()
         self.vault = vault_sync or ObsidianVaultSync()
+        self.document_vault = document_vault or DocumentVault(memory_client=self.memory, vault_sync=self.vault)
         self.compactor = compactor or ContextCompactor(vault_sync=self.vault)
         self.runner = runner or SandboxedRunner()
         self.approvals = approvals or ApprovalManager()
@@ -116,7 +119,7 @@ class ConversationSession:
             coordinator=self.voice.coordinator
         )
         self.sentinel = sentinel_daemon or SentinelDaemon(vault_sync=self.vault)
-        self.analyst = analyst_engine or AnalystEngine(router=self.router, research_agent=self.research)
+        self.analyst = analyst_engine or AnalystEngine(router=self.router, research_agent=self.research, document_vault=self.document_vault)
         self.agent_loop = LumenAgentLoop(session=self, router=self.router, max_steps=8, history_turn_limit=15)
         self.history: list[dict[str, str]] = []
         self._last_turn_was_analyst: bool = False

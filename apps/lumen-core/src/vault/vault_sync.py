@@ -33,6 +33,7 @@ class ObsidianVaultSync:
         self.research_dir = self.vault_path / "research"
         self.sentinel_dir = self.vault_path / "sentinel"
         self.sentinel_incidents_dir = self.sentinel_dir / "incidents"
+        self.documents_dir = self.vault_path / "documents"
 
         self._ensure_directories()
 
@@ -45,6 +46,7 @@ class ObsidianVaultSync:
         self.research_dir.mkdir(parents=True, exist_ok=True)
         self.sentinel_dir.mkdir(parents=True, exist_ok=True)
         self.sentinel_incidents_dir.mkdir(parents=True, exist_ok=True)
+        self.documents_dir.mkdir(parents=True, exist_ok=True)
 
     def _wikilinkify(self, text: str) -> str:
         """Adds wikilinks to recognized technologies, programming languages, and entities."""

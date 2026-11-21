@@ -59,7 +59,9 @@ AGENT_TOOLS = [
                 "PRIMARY tool for quantitative data analysis, financial metrics, and generating publication-quality dark-mode charts "
                 "using Pandas and Matplotlib in a persistent kernel. Invoke whenever the user asks to plot, graph, chart, visualize, "
                 "or analyze numbers, statistics, revenue trajectories, or visual trends — even if they say 'research and graph' or 'find data and plot', "
-                "because analyst_engine performs live web research automatically. Do NOT call deep_research when a graph, plot, or chart is requested. "
+                "because analyst_engine performs live web research automatically. Can directly analyze, compare, and chart local files "
+                "referenced in query (e.g. 'compare sales_2023.csv against sales_2024.csv', 'plot expenditure from invoice.pdf'). "
+                "Do NOT call deep_research when a graph, plot, or chart is requested. "
                 "DO NOT invoke for dramatic, literary, narrative, or conspiracy plots (e.g. 'plot of Hamlet', 'plot a novel or narrative arc', 'plot to overthrow the king', 'political plot') — "
                 "only invoke for numeric, mathematical, or empirical data analysis."
             ),
@@ -141,6 +143,34 @@ AGENT_TOOLS = [
                     },
                 },
                 "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "document_vault",
+            "description": (
+                "Ingests, scans, and parses local documents and files (.pdf, .csv, .xlsx, .md, .txt, images). "
+                "Use 'ingest' action to index files or entire folders into persistent memory (pgvector + Knowledge Graph) "
+                "and archive dossiers into Obsidian vault (vault/documents/). "
+                "Use 'inspect' action to preview tabular schemas, columns, and content. "
+                "For plotting or generating charts from local files, invoke analyst_engine instead (which automatically uses document_vault)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "File or directory path to ingest or inspect (e.g. '~/Documents/research', 'sales_2023.csv', '~/Downloads/invoice.pdf').",
+                    },
+                    "action": {
+                        "type": "string",
+                        "enum": ["ingest", "inspect"],
+                        "description": "Whether to ingest into long-term memory ('ingest') or inspect schemas/text ('inspect'). Default is 'inspect' for single files, 'ingest' for folders.",
+                    },
+                },
+                "required": ["path"],
             },
         },
     },
@@ -305,6 +335,16 @@ class LumenAgentLoop:
                     mems = await self.session.memory.search(query=query, limit=5, trace_id=trace_id)
                     found = [f"• {m.get('entity')} {m.get('attribute')}: {m.get('value')}" for m in mems]
                     tool_result_str = "Retrieved memories:\n" + ("\n".join(found) if found else "No matching memory records.")
+
+                # Route E: Document Vault
+                elif name == "document_vault":
+                    path = args.get("path", user_input).strip()
+                    action = args.get("action", "inspect")
+                    tokens = []
+                    async for t in self.session.document_vault.process(path=path, action=action):
+                        yield t
+                        tokens.append(t)
+                    tool_result_str = "".join(tokens)
 
                 else:
                     tool_result_str = f"Unknown tool: {name}"

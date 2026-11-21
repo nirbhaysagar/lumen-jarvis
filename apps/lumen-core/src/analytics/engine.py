@@ -21,6 +21,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 from src.tools.kernel import PythonKernelManager
 from src.router.model_router import ModelRouter
 from src.research.agent import DeepResearchAgent
+from src.vault.document_vault import DocumentVault
 
 logger = logging.getLogger("lumen.analytics")
 
@@ -47,12 +48,14 @@ class AnalystEngine:
         kernel: Optional[PythonKernelManager] = None,
         router: Optional[ModelRouter] = None,
         research_agent: Optional[DeepResearchAgent] = None,
+        document_vault: Optional[DocumentVault] = None,
         workspace_root: Optional[Path] = None,
     ):
         self.workspace_root = workspace_root or Path(__file__).resolve().parents[4]
         self.kernel = kernel or PythonKernelManager(workspace_root=self.workspace_root)
         self.router = router or ModelRouter()
         self.research = research_agent or DeepResearchAgent()
+        self.doc_vault = document_vault or DocumentVault()
 
         self.analytics_dir = self.workspace_root / "vault" / "analytics"
         self.charts_dir = self.workspace_root / "vault" / "charts"
@@ -82,37 +85,73 @@ class AnalystEngine:
         if progress_cb:
             await progress_cb(0.15, "Grounding data sources...")
 
-        # Detect if query involves external facts that must be fetched
-        is_external_topic = any(
-            k in prompt.lower()
-            for k in ["revenue", "sales", "gdp", "market", "valuation", "stock", "population", "price", "trend", "so far", "growth"]
-        )
-
         sources: List[str] = []
         raw_data_summary: str = ""
         scratch_file_rel: str = ""
 
-        if is_external_topic:
-            yield "🌐 Querying live intelligence sources for verified statistics (anti-hallucination protocol)...\n"
-            try:
-                # Run focused multi-source search
-                search_results = await self.research.discovery.search(prompt, max_per_source=3)
-                sources = [r.url for r in search_results if r.url]
-                snippets = [f"• [{r.title}]({r.url}): {r.snippet}" for r in search_results[:4]]
-                raw_data_summary = "\n".join(snippets)
+        # Check for local files referenced in prompt (CSV, XLSX, PDF, etc.)
+        local_files = self.doc_vault.find_local_files_in_text(prompt)
 
-                # Persist raw grounded facts into session scratchpad
-                scratch_file = self.scratch_dir / f"{slug}_{timestamp}_raw.json"
-                scratch_file.write_text(
-                    json.dumps(
-                        {"prompt": prompt, "sources": sources, "snippets": [r.model_dump() for r in search_results]},
-                        indent=2,
-                    )
+        if local_files:
+            yield f"📄 Grounding analytics from {len(local_files)} local dataset/document(s)...\n"
+            doc_summaries = []
+            for lf in local_files:
+                try:
+                    parsed_doc = self.doc_vault.inspect(lf)
+                    sources.append(str(lf))
+                    yield f"• Loaded `{lf.name}` ({parsed_doc.doc_type.value.upper()}, {parsed_doc.file_size_bytes / 1024:.1f} KB)\n"
+                    if parsed_doc.tables:
+                        for idx, t in enumerate(parsed_doc.tables, 1):
+                            sheet_str = f" [Sheet: {t.sheet_name}]" if t.sheet_name else ""
+                            doc_summaries.append(
+                                f"Local File: '{str(lf)}'{sheet_str}\n"
+                                f"Shape: {t.shape[0]} rows × {t.shape[1]} columns\n"
+                                f"Columns: {', '.join(t.columns)}\n"
+                                f"Sample Records:\n{t.head_markdown}\n"
+                            )
+                    elif parsed_doc.chunks:
+                        doc_summaries.append(
+                            f"Local File: '{str(lf)}'\n"
+                            f"Content Preview:\n{parsed_doc.chunks[0].text[:800]}\n"
+                        )
+                except Exception as e:
+                    yield f"⚠️ Notice inspecting `{lf.name}`: {e}\n"
+
+            if doc_summaries:
+                raw_data_summary = "\n---\n".join(doc_summaries)
+                raw_data_summary += (
+                    f"\n\nCRITICAL EXECUTION REQUIREMENT: You MUST load the data directly from the local file path(s): "
+                    f"{[str(p) for p in local_files]} using pandas (e.g. `pd.read_csv(...)` or `pd.read_excel(...)`). "
+                    f"Do NOT invent or mock data."
                 )
-                scratch_file_rel = f"vault/scratch/{scratch_file.name}"
-                yield f"📁 Raw empirical dataset grounded to `{scratch_file_rel}` ({len(search_results)} sources).\n\n"
-            except Exception as e:
-                yield f"⚠️ Web grounding notice: {e}. Proceeding with historical Take-Two / analyst segment filings.\n\n"
+        else:
+            # Detect if query involves external facts that must be fetched
+            is_external_topic = any(
+                k in prompt.lower()
+                for k in ["revenue", "sales", "gdp", "market", "valuation", "stock", "population", "price", "trend", "so far", "growth"]
+            )
+
+            if is_external_topic:
+                yield "🌐 Querying live intelligence sources for verified statistics (anti-hallucination protocol)...\n"
+                try:
+                    # Run focused multi-source search
+                    search_results = await self.research.discovery.search(prompt, max_per_source=3)
+                    sources = [r.url for r in search_results if r.url]
+                    snippets = [f"• [{r.title}]({r.url}): {r.snippet}" for r in search_results[:4]]
+                    raw_data_summary = "\n".join(snippets)
+
+                    # Persist raw grounded facts into session scratchpad
+                    scratch_file = self.scratch_dir / f"{slug}_{timestamp}_raw.json"
+                    scratch_file.write_text(
+                        json.dumps(
+                            {"prompt": prompt, "sources": sources, "snippets": [r.model_dump() for r in search_results]},
+                            indent=2,
+                        )
+                    )
+                    scratch_file_rel = f"vault/scratch/{scratch_file.name}"
+                    yield f"📁 Raw empirical dataset grounded to `{scratch_file_rel}` ({len(search_results)} sources).\n\n"
+                except Exception as e:
+                    yield f"⚠️ Web grounding notice: {e}. Proceeding with historical Take-Two / analyst segment filings.\n\n"
 
         # ----------------------------------------------------------------------
         # Layer 2 & 3: Code Generation & Execution with Self-Correction Loop
@@ -239,11 +278,11 @@ tags:
             "CRITICAL CONSTRAINTS:\n"
             "1. DO NOT call plt.style.use() or try to load any external style file—lumen_dark style is already active.\n"
             "2. DO NOT call plt.show(). ALWAYS call `save_chart('<slug>')` at the end to save the figure.\n"
-            "3. If external data was provided in snippets, directly formulate the DataFrame or arrays in Python (e.g. `df = pd.DataFrame(...)`) rather than assuming a file exists on disk.\n"
+            "3. If external data was provided in snippets, directly formulate the DataFrame or arrays in Python (e.g. `df = pd.DataFrame(...)`) rather than assuming a file exists on disk. HOWEVER, if local file paths are specified in Grounded Data, ALWAYS load them directly using `pd.read_csv(r'<path>')` or `pd.read_excel(r'<path>')`.\n"
             "4. The kernel already has pandas (pd), numpy (np), matplotlib.pyplot (plt), seaborn (sns), and duckdb imported.\n"
             "5. Print key quantitative statistics (CAGR, totals, growth rates, min, max) using print().\n"
             "6. In pandas, use standard date formatting and valid offsets (e.g. use 'ME' or 'MS' instead of deprecated 'M' for month frequencies). Avoid complex date resampling unless necessary; prefer explicit dates or categorical time steps.\n"
-            "7. Write concise, complete Python code (aim for 25-45 lines). Never truncate expressions, strings, or brackets."
+            "7. Keep the script concise, clean, and under 30 lines of code. Prefer simple, elegant plots (e.g. df.plot(), sns.lineplot, sns.barplot). Avoid bloated multi-line annotation loops to ensure complete syntax."
         )
 
         user_content = (

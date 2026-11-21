@@ -481,3 +481,37 @@ async def test_agent_loop_context_window_15_turns():
     # Verify that the oldest retained message is turn 25 (40 - 15 = 25)
     assert captured_messages[1]["content"] == "User turn 25"
     assert captured_messages[-1]["content"] == "Current prompt"
+
+
+# ==============================================================================
+# Suite 8: Document Vault & File-Based Analytics Dispatch (4 cases)
+# ==============================================================================
+
+DOC_VAULT_CASES = [
+    ("Ingest my notes folder at ~/Documents/research into long-term memory", {"document_vault"}),
+    ("Parse and inspect this spreadsheet at sales_data.csv", {"document_vault"}),
+    ("Compare the metrics in sales_2023.csv against sales_2024.csv and show YoY variance", {"analyst_engine", "document_vault"}),
+    ("Analyze this invoice PDF at ~/Downloads/q3_expenses.pdf and plot expenditure by vendor", {"analyst_engine", "document_vault"}),
+]
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prompt,allowed_tools", DOC_VAULT_CASES)
+async def test_document_vault_dispatch_eval(prompt: str, allowed_tools: set[str]):
+    """
+    Evaluates that document ingestion/inspection routes to document_vault,
+    and document/file-based plotting routes to analyst_engine or document_vault first.
+    """
+    router = ModelRouter()
+    await asyncio.sleep(0.6)
+    res = await router.create_completion(
+        messages=[
+            {"role": "system", "content": "You are JARVIS, an autonomous AI assistant."},
+            {"role": "user", "content": prompt},
+        ],
+        tools=AGENT_TOOLS,
+        tool_choice="auto",
+    )
+    called_tools = [tc["function"]["name"] for tc in res.get("tool_calls", [])]
+    assert any(tool in allowed_tools for tool in called_tools), (
+        f"Prompt '{prompt}' failed to invoke any of {allowed_tools}. Called: {called_tools}"
+    )
