@@ -21,17 +21,17 @@ logger = logging.getLogger("lumen.agent_loop")
 
 READ_ONLY_COMMANDS = {
     "ls", "dir", "cat", "head", "tail", "grep", "rg", "pwd", "whoami",
-    "ps", "top", "uptime", "df", "free", "echo", "date", "env", "find"
+    "ps", "top", "uptime", "df", "free", "echo", "date", "env", "find",
+    "uname", "which", "history", "stat"
 }
 
 
-def is_read_only_command(command: str) -> bool:
-    """Evaluates whether a shell command is strictly read-only or presents mutation risk."""
-    clean = command.strip()
+def _is_single_read_only(clean: str) -> bool:
+    clean = clean.strip()
     if not clean:
         return False
-    # Check for shell redirection or pipes which can write files or run mutations
-    if any(tok in clean for tok in [">", ">>", "|", ";", "&&", "||"]):
+    # Check for shell redirection, subshells, or pipes which can write files or run mutations
+    if any(tok in clean for tok in [">", ">>", "<", "|", "`", "$("]):
         return False
 
     base_cmd = clean.split()[0]
@@ -56,6 +56,23 @@ def is_read_only_command(command: str) -> bool:
             return False
 
     return base_cmd in READ_ONLY_COMMANDS
+
+
+def is_read_only_command(command: str) -> bool:
+    """Evaluates whether a shell command is strictly read-only or presents mutation risk."""
+    clean = command.strip()
+    if not clean:
+        return False
+    # Disallow pipes or file redirections immediately
+    if any(tok in clean for tok in [">", ">>", "<", "|", "||", "`", "$("]):
+        return False
+
+    # Split compound commands on && or ;
+    parts = re.split(r"\s*(?:&&|;)\s*", clean)
+    if not parts or any(not p.strip() for p in parts):
+        return False
+
+    return all(_is_single_read_only(p) for p in parts)
 
 
 AGENT_TOOLS = [
@@ -217,6 +234,22 @@ AGENT_TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "system_sentinel",
+            "description": (
+                "Performs a comprehensive system health and infrastructure inspection. "
+                "Monitors physical host hardware (CPU, RAM, Disk usage), Docker containers (Postgres, Redis, active/crashed), "
+                "and Git workspace cleanliness. Invoke whenever the user asks for a system health check, status check, container inspection, "
+                "or sentinel diagnostic report."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        },
+    },
 ]
 
 
@@ -347,8 +380,30 @@ class LumenAgentLoop:
                 # Route C: Computer Control (with Two-Man Rule gate)
                 elif name == "computer_control":
                     command = args.get("command", "").strip()
+                    cmd_lower = command.lower()
                     if not command:
                         tool_result_str = "Error: empty command."
+                    elif cmd_lower.startswith("approve ") or cmd_lower.startswith("/approve "):
+                        appr_id = command.split()[-1].strip().lstrip("/")
+                        if appr_id in self.session.approvals._pending:
+                            req = self.session.approvals._pending[appr_id]
+                            self.session.approvals.approve(appr_id)
+                            yield f"🔓 Authorization granted for `{req.command}`. Executing in sandbox...\n"
+                            res = await self.session.runner.execute(req.command, bypass_gatekeeper=True, timeout=30.0)
+                            status_tag = "SUCCESS" if res.is_success else f"FAILED (Exit {res.exit_code})"
+                            tool_result_str = f"Command {appr_id} approved.\n[{status_tag} in {res.duration_ms}ms]\n{res.stdout or res.stderr or '(no output)'}"
+                            yield tool_result_str + "\n"
+                        else:
+                            tool_result_str = f"No pending approval found for ID: {appr_id}"
+                            yield f"⚠️ {tool_result_str}\n"
+                    elif cmd_lower.startswith("reject ") or cmd_lower.startswith("/reject "):
+                        appr_id = command.split()[-1].strip().lstrip("/")
+                        if self.session.approvals.reject(appr_id):
+                            tool_result_str = f"Request {appr_id} rejected and cancelled by operator."
+                            yield f"❌ {tool_result_str}\n"
+                        else:
+                            tool_result_str = f"No pending approval found for ID: {appr_id}"
+                            yield f"⚠️ {tool_result_str}\n"
                     elif is_read_only_command(command):
                         yield f"💻 Executing read-only command: `{command}`\n"
                         res = await self.session.runner.execute(command)
@@ -419,6 +474,13 @@ class LumenAgentLoop:
                     else:
                         tool_result_str = f"Data Commons query could not resolve records: {res.get('reason')}"
                         yield f"⚠️ {tool_result_str}\n"
+
+                # Route G: Sentinel System Health
+                elif name == "system_sentinel":
+                    yield "🛡️ Running Sentinel system and container diagnostic scan...\n"
+                    await self.session.sentinel.run_patrol()
+                    tool_result_str = self.session.sentinel.get_summary_text()
+                    yield f"{tool_result_str}\n"
 
                 else:
                     tool_result_str = f"Unknown tool: {name}"

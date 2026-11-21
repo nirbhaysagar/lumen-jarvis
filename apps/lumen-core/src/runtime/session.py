@@ -345,8 +345,9 @@ class ConversationSession:
             yield "\n".join(lines)
             return
 
-        if trimmed.startswith("/approve "):
-            target_id = trimmed.split(" ", 1)[1].strip()
+        trimmed_lower = trimmed.lower()
+        if trimmed.startswith("/approve ") or (trimmed_lower.startswith("approve ") and "appr_" in trimmed_lower):
+            target_id = trimmed.split(" ", 1)[1].strip().lstrip("/")
             req = self.approvals._pending.get(target_id)
             if not req:
                 yield f"No pending approval found for ID: {target_id}"
@@ -361,8 +362,8 @@ class ConversationSession:
             )
             return
 
-        if trimmed.startswith("/reject "):
-            target_id = trimmed.split(" ", 1)[1].strip()
+        if trimmed.startswith("/reject ") or (trimmed_lower.startswith("reject ") and "appr_" in trimmed_lower):
+            target_id = trimmed.split(" ", 1)[1].strip().lstrip("/")
             rejected = self.approvals.reject(target_id)
             if rejected:
                 yield f"❌ Request {target_id} has been rejected and cancelled by operator."
@@ -659,24 +660,28 @@ class ConversationSession:
         self.history.append({"role": "assistant", "content": assistant_text})
 
         # 6. Capture interaction to Memory Engine L0 Event Log & Extract Verifiable Memories
-        capture_res = await self.memory.capture(
-            content=user_text,
-            source={"kind": "chat", "title": f"chat_{self.conversation_id}", "author": "user"},
-            idempotency_key=f"turn_{self.conversation_id}_{len(self.history)//2}",
-            trace_id=trace_id,
-        )
-        if capture_res and capture_res.get("event_id"):
-            event_id = capture_res["event_id"]
-            # Trigger structured extraction with exact character-span citations & non-destructive versioning
+        if hasattr(self.memory, "capture"):
             try:
-                await self.memory.extract_and_apply(
-                    event_id=event_id,
+                capture_res = await self.memory.capture(
                     content=user_text,
-                    speaker="user",
+                    source={"kind": "chat", "title": f"chat_{self.conversation_id}", "author": "user"},
+                    idempotency_key=f"turn_{self.conversation_id}_{len(self.history)//2}",
                     trace_id=trace_id,
                 )
+                if capture_res and capture_res.get("event_id") and hasattr(self.memory, "extract_and_apply"):
+                    event_id = capture_res["event_id"]
+                    # Trigger structured extraction with exact character-span citations & non-destructive versioning
+                    try:
+                        await self.memory.extract_and_apply(
+                            event_id=event_id,
+                            content=user_text,
+                            speaker="user",
+                            trace_id=trace_id,
+                        )
+                    except Exception as e:
+                        logger.warning(f"Memory extraction failed on chat turn: {e}")
             except Exception as e:
-                logger.warning(f"Memory extraction failed on chat turn: {e}")
+                logger.warning(f"Memory capture failed on chat turn: {e}")
 
         # 7. Automated Context Compaction (Evacuates turns if high watermark is reached)
         if self.compactor.should_compact(self.history):
