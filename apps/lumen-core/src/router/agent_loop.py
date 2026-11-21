@@ -42,7 +42,20 @@ def _is_single_read_only(clean: str) -> bool:
         return False
 
     if clean.startswith("git "):
-        return any(clean.startswith(f"git {ro}") for ro in ["status", "log", "diff", "branch", "show"])
+        tokens = clean.split()[1:]
+        subcmd = None
+        i = 0
+        while i < len(tokens):
+            t = tokens[i]
+            if t in ["-C", "-c"]:
+                i += 2
+                continue
+            if t.startswith("-"):
+                i += 1
+                continue
+            subcmd = t
+            break
+        return subcmd in ["status", "log", "diff", "branch", "show", "rev-parse", "describe", "tag"]
 
     if clean.startswith("docker "):
         return clean.startswith("docker ps") or clean.startswith("docker images")
@@ -137,6 +150,8 @@ AGENT_TOOLS = [
             "description": (
                 "Executes operating system shell commands (e.g. file management, checking processes, git commands, system diagnostics). "
                 "Read-only commands execute directly; non-read-only mutating commands require human confirmation (Two-Man Rule). "
+                "Commands execute directly in the active project workspace root. "
+                "NEVER invent or pass fictional placeholder paths like '~/Documents/your_repo' or '<repo>'—run git commands directly in the current directory (e.g. 'git log -n 5 --oneline', 'git status', 'ls -la'). "
                 "DO NOT use for plotting, charting, or data analysis (use analyst_engine instead)."
             ),
             "parameters": {
@@ -144,7 +159,7 @@ AGENT_TOOLS = [
                 "properties": {
                     "command": {
                         "type": "string",
-                        "description": "The exact shell command to evaluate and execute.",
+                        "description": "The exact shell command to evaluate and execute directly in the workspace.",
                     },
                 },
                 "required": ["command"],
