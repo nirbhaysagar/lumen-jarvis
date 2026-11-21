@@ -20,12 +20,24 @@ class MemoryServiceClient:
     Implements circuit-breaking: if the memory service is unreachable,
     Lumen gracefully degrades to stateless mode rather than crashing.
     """
-    def __init__(self, base_url: str = "http://localhost:8000", max_consecutive_failures: int = 3):
+    def __init__(
+        self,
+        base_url: str | None = None,
+        token: str | None = None,
+        max_consecutive_failures: int = 3,
+    ):
+        import os
+        if base_url is None:
+            base_url = os.getenv("LUMEN_MEMORY_URL", "http://127.0.0.1:7420")
         self.base_url = base_url.rstrip("/")
+        self.token = token or os.getenv("LUMEN_MEMORY_TOKEN")
         self.max_failures = max_consecutive_failures
         self.failure_count = 0
         self.circuit_open = False
-        self._client = httpx.AsyncClient(timeout=4.0)
+        headers = {}
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        self._client = httpx.AsyncClient(timeout=4.0, headers=headers)
 
     def _record_success(self):
         self.failure_count = 0

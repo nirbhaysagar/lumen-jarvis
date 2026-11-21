@@ -1,0 +1,15 @@
+id: paraphrase-01
+category: paraphrase
+setup:
+  - content: "I do all my coding in Neovim."
+    source:
+      kind: chat
+    occurred_at: "-4d"
+query:
+  text: "Which text editor do I use for programming?"
+expect:
+  answer_contains_any:
+    - "Neovim"
+  top_k_contains_setup:
+    k: 5
+    index: 0

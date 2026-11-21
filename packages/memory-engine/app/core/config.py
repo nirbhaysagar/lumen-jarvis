@@ -2,6 +2,7 @@
 Configuration settings for Memory Engine Service.
 Loads from environment variables and .env file.
 """
+import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
 
@@ -16,9 +17,11 @@ class Settings(BaseSettings):
     # Service Configuration
     SERVICE_NAME: str = "memory-engine"
     ENVIRONMENT: str = "development"
-    HOST: str = "0.0.0.0"
-    PORT: int = 8000
+    LUMEN_ENV: str = Field(default_factory=lambda: os.getenv("LUMEN_ENV", "development"))
+    HOST: str = "127.0.0.1"
+    PORT: int = 7420
     DEBUG: bool = False
+    LUMEN_MEMORY_TOKEN: str | None = Field(default_factory=lambda: os.getenv("LUMEN_MEMORY_TOKEN", None))
 
     # PostgreSQL Connection (The Hub DB)
     POSTGRES_USER: str = Field(default="lumen")
@@ -29,12 +32,18 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> str:
-        return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+        env_url = os.getenv("LUMEN_DATABASE_URL") or os.getenv("DATABASE_URL")
+        if env_url:
+            return env_url
+        db = "lumen_memory_test" if self.LUMEN_ENV == "test" else self.POSTGRES_DB
+        return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{db}"
 
-    # Embeddings
-    EMBEDDING_DIMENSION: int = 1536
-    EMBEDDING_MODEL: str = "text-embedding-3-small"
+    # Embeddings & Local Models
+    EMBEDDING_DIMENSION: int = 768
+    EMBEDDING_MODEL: str = "nomic-embed-text"
     OPENAI_API_KEY: str | None = None
+    LUMEN_LLM_MODEL: str = "qwen2.5:7b-instruct"
+    OLLAMA_BASE_URL: str = "http://127.0.0.1:11434"
 
 
 settings = Settings()

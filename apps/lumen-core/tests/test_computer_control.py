@@ -177,7 +177,7 @@ async def test_sandboxed_runner_environment_scrubbing():
 
     runner = SandboxedRunner(sanitize_environment=True)
     # Child process attempts to read parent's OPENAI_API_KEY
-    result = await runner.execute("python3 -c \"import os; print('KEY_VALUE:' + os.getenv('OPENAI_API_KEY', 'NONE'))\"")
+    result = await runner.execute("python3 -c \"import os; print('KEY_VALUE:' + os.getenv('OPENAI_API_KEY', 'NONE'))\"", bypass_gatekeeper=True)
     assert result.is_success is True
     assert "KEY_VALUE:NONE" in result.stdout
 

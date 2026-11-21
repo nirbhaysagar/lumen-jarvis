@@ -137,6 +137,15 @@ class SandboxedRunner:
                     duration_ms=0.0,
                     error=evaluation.reason,
                 )
+            if evaluation.requires_approval:
+                return ExecutionResult(
+                    command=command,
+                    exit_code=126,
+                    stdout="",
+                    stderr=f"SECURITY REFUSAL: Command requires explicit operator approval ({evaluation.reason}). Use Two-Man Rule.",
+                    duration_ms=0.0,
+                    error=f"Requires approval: {evaluation.reason}",
+                )
 
         # 2. Check Directory Jail / Critical System Roots
         target_cwd = Path(cwd).resolve() if cwd else self.workspace_root

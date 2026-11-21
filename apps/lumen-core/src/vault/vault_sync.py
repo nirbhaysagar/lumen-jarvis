@@ -15,6 +15,8 @@ class ObsidianVaultSync:
     def __init__(self, vault_path: str | Path | None = None) -> None:
         if vault_path:
             self.vault_path = Path(vault_path)
+        elif os.getenv("LUMEN_VAULT_DIR"):
+            self.vault_path = Path(os.environ["LUMEN_VAULT_DIR"])
         else:
             # Dynamically locate project root
             current_file = Path(__file__).resolve()

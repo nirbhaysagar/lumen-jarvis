@@ -108,7 +108,7 @@ class ASTGatekeeper:
     SAFE_COMMANDS = {
         "ls", "dir", "cat", "head", "tail", "grep", "egrep", "fgrep",
         "find", "pwd", "whoami", "echo", "which", "whereis", "uname",
-        "date", "wc", "diff", "env", "printenv", "ps", "tree", "id",
+        "date", "wc", "diff", "env", "printenv", "ps", "tree", "id", "sleep",
     }
 
     # Safe subcommands for git

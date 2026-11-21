@@ -60,14 +60,16 @@ class PythonKernelManager:
             self.charts_dir.mkdir(parents=True, exist_ok=True)
             self.scratch_dir.mkdir(parents=True, exist_ok=True)
 
-            env = os.environ.copy()
+            # Sanitize environment: pass minimal safe env to protect host secrets
+            safe_env_keys = {"PATH", "HOME", "USER", "LANG", "LC_ALL", "TMPDIR", "TERM"}
+            env = {k: os.environ[k] for k in safe_env_keys if k in os.environ}
             env["MPLBACKEND"] = "Agg"
             env["PYTHONUNBUFFERED"] = "1"
             # Point to local workspace modules
             core_path = str(self.workspace_root / "apps" / "lumen-core")
             mem_path = str(self.workspace_root / "packages" / "memory-engine")
-            existing_py_path = env.get("PYTHONPATH", "")
-            env["PYTHONPATH"] = f"{core_path}:{mem_path}:{existing_py_path}"
+            existing_py_path = os.environ.get("PYTHONPATH", "")
+            env["PYTHONPATH"] = f"{core_path}:{mem_path}:{existing_py_path}" if existing_py_path else f"{core_path}:{mem_path}"
 
             loop = asyncio.get_running_loop()
 

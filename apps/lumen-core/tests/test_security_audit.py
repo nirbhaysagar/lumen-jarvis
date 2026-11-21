@@ -103,3 +103,54 @@ async def test_session_dossier_reader_path_traversal_blocked():
         assert "ADR-001" not in reply  # Content of engineering log must not be exposed
 
         await memory.close()
+
+
+@pytest.mark.asyncio
+async def test_runner_refuses_credential_reads_without_approval():
+    """Verify SandboxedRunner strictly refuses credential access without operator approval."""
+    from src.tools.runner import SandboxedRunner
+
+    runner = SandboxedRunner()
+    result = await runner.execute("cat ~/.ssh/id_rsa")
+    assert result.is_success is False
+    assert result.exit_code == 126
+    assert "Two-Man Rule" in result.stderr or "operator approval" in result.stderr
+
+    result_env = await runner.execute("cat .env")
+    assert result_env.is_success is False
+    assert result_env.exit_code == 126
+
+
+def test_is_read_only_command_blocks_find_destructive_flags():
+    """Verify is_read_only_command refuses destructive find variants."""
+    from src.router.agent_loop import is_read_only_command
+
+    assert is_read_only_command("find . -name '*.py'") is True
+    assert is_read_only_command("find . -name '*.tmp' -delete") is False
+    assert is_read_only_command("find . -exec rm -rf {} +") is False
+    assert is_read_only_command("find . -ok rm {} \\;") is False
+    assert is_read_only_command("find . -fprint output.txt") is False
+
+
+@pytest.mark.asyncio
+async def test_kernel_environment_sanitization(tmp_path, monkeypatch):
+    """Verify Jupyter kernel does not inherit host secret environment variables."""
+    import os
+    from src.tools.kernel import PythonKernelManager
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-super-secret-leaked-key")
+    monkeypatch.setenv("GROQ_API_KEY", "gsk-leaked-groq-key")
+
+    km = PythonKernelManager(workspace_root=tmp_path)
+    try:
+        await km.start()
+        res = await km.execute(
+            "import os\n"
+            "print('OAI:' + str(os.getenv('OPENAI_API_KEY')))\n"
+            "print('GROQ:' + str(os.getenv('GROQ_API_KEY')))\n"
+        )
+        assert res["status"] == "ok"
+        assert "OAI:None" in res["stdout"]
+        assert "GROQ:None" in res["stdout"]
+    finally:
+        await km.stop()

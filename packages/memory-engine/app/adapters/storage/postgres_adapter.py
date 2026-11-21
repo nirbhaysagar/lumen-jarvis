@@ -53,6 +53,12 @@ class PostgresStorageAdapter(StoragePort):
             init=init_connection,
         )
 
+    @property
+    def pool(self) -> asyncpg.Pool:
+        if not self._pool:
+            raise RuntimeError("Database pool not connected. Call connect() first.")
+        return self._pool
+
     async def disconnect(self) -> None:
         """Gracefully close the connection pool."""
         if self._pool:

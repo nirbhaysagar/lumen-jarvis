@@ -47,6 +47,14 @@ def is_read_only_command(command: str) -> bool:
     if clean.startswith("docker "):
         return clean.startswith("docker ps") or clean.startswith("docker images")
 
+    if base_cmd == "find":
+        destructive_flags = [
+            "-delete", "-exec", "-execdir", "-ok", "-okdir",
+            "-fprint", "-fprintf", "-fls"
+        ]
+        if any(flag in clean for flag in destructive_flags):
+            return False
+
     return base_cmd in READ_ONLY_COMMANDS
 
 

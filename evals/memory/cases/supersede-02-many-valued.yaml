@@ -1,0 +1,18 @@
+id: supersede-02-many-valued
+category: supersede
+setup:
+  - content: "I prefer Neovim for editing."
+    source:
+      kind: chat
+    occurred_at: "-5d"
+  - content: "I prefer Postgres for databases."
+    source:
+      kind: chat
+    occurred_at: "-2d"
+query:
+  text: "What editor do I prefer?"
+expect:
+  answer_contains_any:
+    - "Neovim"
+  cites_setup:
+    - 0

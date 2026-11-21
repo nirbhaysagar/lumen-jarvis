@@ -10,7 +10,9 @@ from app.core.config import settings
 from app.adapters.storage.postgres_adapter import PostgresStorageAdapter
 from app.adapters.embeddings.embedding_adapter import DeterministicHashEmbeddingAdapter, OpenAIEmbeddingAdapter
 from app.api.middleware.correlation import CorrelationMiddleware, get_current_trace_id
+from app.api.middleware.auth import AuthMiddleware
 from app.api.v1.endpoints import router as v1_router
+from app.api.v1.capture import router as capture_router
 
 
 @asynccontextmanager
@@ -18,8 +20,8 @@ async def lifespan(app: FastAPI):
     # 1. Initialize Storage Adapter (Postgres + pgvector)
     storage = PostgresStorageAdapter(dsn=settings.database_url)
     await storage.connect()
-    await storage.initialize_schema()
     app.state.storage = storage
+    app.state.db_pool = storage.pool
 
     # 2. Initialize Embedding Adapter
     if settings.OPENAI_API_KEY:
@@ -45,10 +47,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Attach Correlation Middleware (Distributed Tracing)
+# Attach Middleware (Distributed Tracing & Authentication)
 app.add_middleware(CorrelationMiddleware)
+app.add_middleware(AuthMiddleware)
 
 # Mount API Routers
+app.include_router(capture_router)
 app.include_router(v1_router)
 
 

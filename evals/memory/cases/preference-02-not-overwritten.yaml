@@ -1,0 +1,19 @@
+id: preference-02-not-overwritten
+category: supersede
+setup:
+  - content: "Always reply in short answers."
+    source:
+      kind: chat
+    occurred_at: "-5d"
+  - content: "Never use emojis."
+    source:
+      kind: chat
+    occurred_at: "-1d"
+query:
+  text: "How should you format replies to me?"
+expect:
+  answer_contains_any:
+    - "short"
+  cites_setup:
+    - 0
+    - 1
