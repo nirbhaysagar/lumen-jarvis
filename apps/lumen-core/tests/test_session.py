@@ -111,3 +111,33 @@ async def test_session_proposals_and_graph_commands():
 
     await memory_client.close()
 
+
+@pytest.mark.asyncio
+async def test_session_conversational_approval_and_rejection():
+    """Verify natural language approvals ('yes, proceed', 'no, cancel') work without slash commands or token IDs."""
+    session = ConversationSession()
+
+    # Stage a pending approval
+    req = session.approvals.request_approval("echo 'sandbox test'", "Automated test")
+    assert req.approval_id in session.approvals._pending
+
+    # 1. Natural confirmation: "yes, proceed"
+    tokens = []
+    async for tok in session.process_turn("yes, proceed"):
+        tokens.append(tok)
+    res_text = "".join(tokens)
+    assert "Authorization confirmed" in res_text
+    assert req.approval_id not in session.approvals._pending
+
+    # Stage another pending approval
+    req2 = session.approvals.request_approval("touch /tmp/dummy", "Test rejection")
+    assert req2.approval_id in session.approvals._pending
+
+    # 2. Natural rejection: "no, cancel"
+    tokens2 = []
+    async for tok in session.process_turn("no, cancel"):
+        tokens2.append(tok)
+    res_text2 = "".join(tokens2)
+    assert "cancelled by operator" in res_text2
+    assert req2.approval_id not in session.approvals._pending
+

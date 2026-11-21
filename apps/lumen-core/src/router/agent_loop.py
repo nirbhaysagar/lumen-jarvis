@@ -420,11 +420,10 @@ class LumenAgentLoop:
                             f"\n🛡️ [Two-Man Rule Authorization Required]\n"
                             f"• Command: `{command}`\n"
                             f"• Risk Level: HIGH (Mutating system operation)\n"
-                            f"• Approval ID: `{req.approval_id}`\n"
-                            f"👉 To authorize, type: `/approve {req.approval_id}`\n"
-                            f"👉 To cancel, type: `/reject {req.approval_id}`\n"
+                            f"👉 Say or type \"Yes, proceed\" or \"Approve\" to execute\n"
+                            f"👉 Or say \"Cancel\" / \"No\" to abort (CLI: `/approve {req.approval_id}`)\n"
                         )
-                        tool_result_str = f"Command gated awaiting operator approval token ID: {req.approval_id}. Awaiting /approve {req.approval_id}."
+                        tool_result_str = f"Command gated awaiting operator approval token ID: {req.approval_id}. User may say 'yes/proceed' or '/approve {req.approval_id}'."
 
                 # Route D: Memory Lookup
                 elif name == "memory_lookup":

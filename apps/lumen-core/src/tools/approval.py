@@ -32,16 +32,16 @@ class ApprovalManager:
         return req
 
     def approve(self, approval_id: str) -> bool:
-        """Approves a pending command."""
-        req = self._pending.get(approval_id)
+        """Approves a pending command and resolves it from the queue."""
+        req = self._pending.pop(approval_id, None)
         if not req:
             return False
         req.approved_event.set()
         return True
 
     def reject(self, approval_id: str) -> bool:
-        """Rejects a pending command."""
-        req = self._pending.get(approval_id)
+        """Rejects a pending command and removes it from the queue."""
+        req = self._pending.pop(approval_id, None)
         if not req:
             return False
         req.rejected_event.set()

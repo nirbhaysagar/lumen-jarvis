@@ -346,6 +346,47 @@ class ConversationSession:
             return
 
         trimmed_lower = trimmed.lower()
+
+        # Conversational authorization / cancellation when approvals are pending
+        pending_list = self.approvals.list_pending()
+        if pending_list:
+            clean_intent = re.sub(r"[^\w\s]", "", trimmed_lower).strip()
+            affirmative_intents = {
+                "yes", "y", "approve", "approved", "go ahead", "proceed", "confirm", "confirmed",
+                "do it", "sure", "yes please", "yes go ahead", "please proceed", "allow", "authorized",
+                "authorize", "ok", "okay", "fine", "run it", "yes do it"
+            }
+            negative_intents = {
+                "no", "n", "cancel", "cancelled", "stop", "don't", "dont", "do not", "reject",
+                "rejected", "deny", "denied", "abort", "aborted", "nevermind", "dismiss", "no dont"
+            }
+            is_affirmative = (
+                clean_intent in affirmative_intents
+                or any(clean_intent.startswith(f"{aff} ") for aff in ["yes", "approve", "go ahead", "proceed", "confirm", "sure"])
+            )
+            is_negative = (
+                clean_intent in negative_intents
+                or any(clean_intent.startswith(f"{neg} ") for neg in ["no", "cancel", "reject", "dont", "do not", "abort"])
+            )
+
+            if is_affirmative:
+                req = pending_list[-1]
+                yield f"🔓 Authorization confirmed for `{req.command}`. Executing in sandbox...\n"
+                self.approvals.approve(req.approval_id)
+                res = await self.runner.execute(req.command, bypass_gatekeeper=True, timeout=30.0)
+                status_tag = "SUCCESS" if res.is_success else f"FAILED (Exit {res.exit_code})"
+                yield (
+                    f"[{status_tag} in {res.duration_ms}ms]\n"
+                    f"{res.stdout or res.stderr or '(no output produced)'}"
+                )
+                return
+
+            if is_negative:
+                req = pending_list[-1]
+                self.approvals.reject(req.approval_id)
+                yield f"❌ Request `{req.command}` ({req.approval_id}) has been cancelled by operator."
+                return
+
         if trimmed.startswith("/approve ") or (trimmed_lower.startswith("approve ") and "appr_" in trimmed_lower):
             target_id = trimmed.split(" ", 1)[1].strip().lstrip("/")
             req = self.approvals._pending.get(target_id)
