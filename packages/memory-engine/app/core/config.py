@@ -18,8 +18,8 @@ class Settings(BaseSettings):
     SERVICE_NAME: str = "memory-engine"
     ENVIRONMENT: str = "development"
     LUMEN_ENV: str = Field(default_factory=lambda: os.getenv("LUMEN_ENV", "development"))
-    HOST: str = "127.0.0.1"
-    PORT: int = 7420
+    HOST: str = "0.0.0.0"
+    PORT: int = Field(default_factory=lambda: int(os.getenv("MEMORY_ENGINE_PORT", os.getenv("PORT", "8000"))))
     DEBUG: bool = False
     LUMEN_MEMORY_TOKEN: str | None = Field(default_factory=lambda: os.getenv("LUMEN_MEMORY_TOKEN", None))
 

@@ -31,3 +31,26 @@ def isolate_vault(tmp_path, monkeypatch):
     (temp_vault / "memories").mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("LUMEN_VAULT_DIR", str(temp_vault))
     yield temp_vault
+
+
+@pytest.fixture(autouse=True)
+async def clean_test_db():
+    """Ensure a pristine test database before each test run."""
+    import asyncpg
+    conn = await asyncpg.connect(
+        "postgresql://lumen:lumen_secure_pass@localhost:5432/lumen_memory_test"
+    )
+    try:
+        await conn.execute(
+            """
+            TRUNCATE TABLE 
+                sources, events, chunks, entities, entity_aliases, 
+                memories, claims, citations, memory_relations, 
+                abstractions, abstraction_sources, memory_signals, 
+                retrieval_traces, review_queue, outbox, jobs 
+            CASCADE;
+            """
+        )
+    finally:
+        await conn.close()
+    yield

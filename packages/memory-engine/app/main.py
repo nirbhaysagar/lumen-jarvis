@@ -8,11 +8,17 @@ from fastapi.responses import JSONResponse, HTMLResponse
 
 from app.core.config import settings
 from app.adapters.storage.postgres_adapter import PostgresStorageAdapter
-from app.adapters.embeddings.embedding_adapter import DeterministicHashEmbeddingAdapter, OpenAIEmbeddingAdapter
+from app.adapters.embeddings.embedding_adapter import (
+    DeterministicHashEmbeddingAdapter,
+    OpenAIEmbeddingAdapter,
+    OllamaEmbeddingAdapter,
+)
 from app.api.middleware.correlation import CorrelationMiddleware, get_current_trace_id
 from app.api.middleware.auth import AuthMiddleware
 from app.api.v1.endpoints import router as v1_router
 from app.api.v1.capture import router as capture_router
+from app.api.v1.extract import router as extract_router
+from app.api.v1.recall import router as recall_router
 
 
 @asynccontextmanager
@@ -31,8 +37,21 @@ async def lifespan(app: FastAPI):
             dimension=settings.EMBEDDING_DIMENSION,
         )
     else:
-        # High-performance zero-dependency deterministic fallback
-        app.state.embedding = DeterministicHashEmbeddingAdapter(dimension=settings.EMBEDDING_DIMENSION)
+        # Try local Ollama nomic-embed-text (768-d), fallback to deterministic hash
+        try:
+            import httpx
+            with httpx.Client(timeout=0.5) as client:
+                resp = client.get(f"{settings.OLLAMA_BASE_URL}/api/tags")
+                if resp.status_code == 200:
+                    app.state.embedding = OllamaEmbeddingAdapter(
+                        base_url=settings.OLLAMA_BASE_URL,
+                        model=settings.EMBEDDING_MODEL,
+                        dimension=settings.EMBEDDING_DIMENSION,
+                    )
+                else:
+                    app.state.embedding = DeterministicHashEmbeddingAdapter(dimension=settings.EMBEDDING_DIMENSION)
+        except Exception:
+            app.state.embedding = DeterministicHashEmbeddingAdapter(dimension=settings.EMBEDDING_DIMENSION)
 
     yield
 
@@ -53,6 +72,8 @@ app.add_middleware(AuthMiddleware)
 
 # Mount API Routers
 app.include_router(capture_router)
+app.include_router(extract_router)
+app.include_router(recall_router)
 app.include_router(v1_router)
 
 

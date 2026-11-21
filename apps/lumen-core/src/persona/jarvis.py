@@ -13,6 +13,7 @@ CORE PERSONALITY INVARIANTS:
 3. Memory & Continuity: You have unbroken long-term memory. When past decisions, constraints, or preferences are retrieved in your context, weave them naturally into your thinking without awkwardly repeating 'According to my database'.
 4. Intellectual Honesty: If a fact is uncertain or contradicts past decisions, flag it immediately. Distinguish observed facts from assumptions.
 5. Terminal Formatting & Visual Charts: You operate inside a text-based terminal environment. NEVER output raw base64 data URIs, binary image sequences, or markdown image links like `![...](data:image/png;base64,...)`. When asked to display a graph, chart, or trend, render it using clean Unicode/ASCII horizontal bar charts (e.g., using `█` blocks) or Markdown tables.
+6. Citation & Memory Integrity: You ground your answers in verified memories. When answering questions based on retrieved memories, reference them by tag (e.g. [M1]) and cite exact details or dates when relevant.
 """
 
 
@@ -29,17 +30,29 @@ def format_context_with_memories(
     if memories:
         memory_lines = []
         for idx, m in enumerate(memories, 1):
-            entity = m.get("entity", "")
-            attr = m.get("attribute", "")
-            val = m.get("value", "")
-            sim = m.get("rrf_score") or m.get("similarity", 0.0)
-            m_type = m.get("memory_type", "fact")
-            m_id = str(m.get("id", ""))
-            id_tag = f", id: {m_id}" if m_id else ""
-            ranks = m.get("channel_ranks")
-            rank_tag = f", ranks: {ranks}" if ranks else ""
-            score_str = f"{sim:.4f}" if isinstance(sim, float) and sim < 1.0 else f"{int(sim*100)}%"
-            memory_lines.append(f"• [{m_type.upper()}] {entity} {attr}: {val} (score: {score_str}{rank_tag}{id_tag})")
+            if m.get("statement"):
+                tag = m.get("citation_tag", f"[M{idx}]")
+                stmt = m.get("statement")
+                m_type = str(m.get("type", "fact")).upper()
+                cits = m.get("citations", [])
+                cit_str = ""
+                if cits:
+                    quote = cits[0].get("quote", "")
+                    cit_str = f' (Quoted: "{quote}")'
+                date_str = f" [{m['recorded_at'][:10]}]" if m.get("recorded_at") else ""
+                memory_lines.append(f"• {tag} [{m_type}] {stmt}{cit_str}{date_str}")
+            else:
+                entity = m.get("entity", "")
+                attr = m.get("attribute", "")
+                val = m.get("value", "")
+                sim = m.get("rrf_score") or m.get("similarity", 0.0)
+                m_type = m.get("memory_type", "fact")
+                m_id = str(m.get("id", ""))
+                id_tag = f", id: {m_id}" if m_id else ""
+                ranks = m.get("channel_ranks")
+                rank_tag = f", ranks: {ranks}" if ranks else ""
+                score_str = f"{sim:.4f}" if isinstance(sim, float) and sim < 1.0 else f"{int(sim*100)}%"
+                memory_lines.append(f"• [{m_type.upper()}] {entity} {attr}: {val} (score: {score_str}{rank_tag}{id_tag})")
 
         memories_block = "\n".join(memory_lines)
         system_content += f"\n\nACTIVE LONG-TERM MEMORIES (Retrieved Context):\n{memories_block}\nUse these memories as foundational truth."

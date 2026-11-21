@@ -15,15 +15,26 @@ from typing import Any
 import asyncpg
 import yaml
 import httpx
+from httpx import ASGITransport
+
+# Force test database isolation before importing app
+os.environ["LUMEN_ENV"] = "test"
+os.environ["POSTGRES_DB"] = "lumen_memory_test"
+os.environ["LUMEN_DATABASE_URL"] = "postgresql://lumen:lumen_secure_pass@localhost:5432/lumen_memory_test"
+os.environ["DATABASE_URL"] = "postgresql://lumen:lumen_secure_pass@localhost:5432/lumen_memory_test"
+os.environ["LUMEN_MEMORY_TOKEN"] = "test-token-secret"
+
+# Add packages/memory-engine to sys.path
+engine_path = Path(__file__).resolve().parent.parent.parent / "packages" / "memory-engine"
+if str(engine_path) not in sys.path:
+    sys.path.insert(0, str(engine_path))
+
+from app.main import app
 
 EVAL_CLOCK = datetime(2026, 11, 21, 10, 0, 0, tzinfo=timezone(timedelta(hours=5, minutes=30)))
 
-TEST_DB_URL = os.getenv(
-    "LUMEN_DATABASE_URL",
-    "postgresql://lumen:lumen_secure_pass@localhost:5432/lumen_memory_test"
-)
-MEMORY_API_URL = os.getenv("LUMEN_MEMORY_URL", "http://127.0.0.1:7420")
-MEMORY_TOKEN = os.getenv("LUMEN_MEMORY_TOKEN", "test-token-secret")
+TEST_DB_URL = "postgresql://lumen:lumen_secure_pass@localhost:5432/lumen_memory_test"
+MEMORY_TOKEN = "test-token-secret"
 
 
 def parse_relative_time(rel_str: str | None, base_time: datetime = EVAL_CLOCK) -> datetime:
@@ -44,27 +55,23 @@ def parse_relative_time(rel_str: str | None, base_time: datetime = EVAL_CLOCK) -
 
 async def clean_test_db(pool: asyncpg.Pool):
     """Truncate tables in lumen_memory_test between test cases."""
-    tables = [
-        "retrieval_traces", "outbox", "jobs", "review_queue", "memory_signals",
-        "abstraction_sources", "abstractions", "memory_relations", "citations",
-        "claims", "memories", "entity_aliases", "entities", "chunks",
-        "events", "sources"
-    ]
     async with pool.acquire() as conn:
-        for tbl in tables:
-            try:
-                # Check if table exists
-                exists = await conn.fetchval(
-                    "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)",
-                    tbl
-                )
-                if exists:
-                    await conn.execute(f"TRUNCATE TABLE {tbl} CASCADE;")
-            except Exception as e:
-                pass
+        try:
+            await conn.execute(
+                """
+                TRUNCATE TABLE 
+                    sources, events, chunks, entities, entity_aliases, 
+                    memories, claims, citations, memory_relations, 
+                    abstractions, abstraction_sources, memory_signals, 
+                    retrieval_traces, review_queue, outbox, jobs 
+                CASCADE;
+                """
+            )
+        except Exception as e:
+            pass
 
 
-async def run_eval_case(case_path: Path, pool: asyncpg.Pool) -> dict[str, Any]:
+async def run_eval_case(case_path: Path, client: httpx.AsyncClient, pool: asyncpg.Pool) -> dict[str, Any]:
     with open(case_path, "r", encoding="utf-8") as f:
         case = yaml.safe_load(f)
 
@@ -78,63 +85,68 @@ async def run_eval_case(case_path: Path, pool: asyncpg.Pool) -> dict[str, Any]:
     await clean_test_db(pool)
 
     setup_event_ids: list[str] = []
-    headers = {"Authorization": f"Bearer {MEMORY_TOKEN}"} if MEMORY_TOKEN else {}
+    headers = {"Authorization": f"Bearer {MEMORY_TOKEN}"}
 
     # 2. Replay setup captures
-    async with httpx.AsyncClient(timeout=10.0) as http:
-        for idx, item in enumerate(setup):
-            op = item.get("op", "capture")
-            if op.startswith("forget:"):
-                # Handle forget
-                target_idx = int(op.split(":")[1])
-                # tombstone target
-                continue
+    for idx, item in enumerate(setup):
+        content = item.get("content", "")
+        source = item.get("source", {"kind": "chat", "title": "eval", "author": "user"})
+        occurred_at = parse_relative_time(item.get("occurred_at")).isoformat()
+        context = item.get("context", "default")
 
-            content = item.get("content", "")
-            source = item.get("source", {"kind": "chat"})
-            occurred_at = parse_relative_time(item.get("occurred_at")).isoformat()
-            context = item.get("context", "default")
-
-            try:
-                resp = await http.post(
-                    f"{MEMORY_API_URL}/v1/capture",
-                    json={
-                        "content": content,
-                        "source": source,
-                        "occurred_at": occurred_at,
-                        "context": context,
-                        "idempotency_key": f"{case_id}_setup_{idx}",
-                    },
-                    headers=headers,
-                )
-                if resp.status_code in (200, 201):
-                    setup_event_ids.append(resp.json().get("event_id"))
-                else:
-                    setup_event_ids.append(f"err_{resp.status_code}")
-            except Exception as e:
-                setup_event_ids.append(f"exc_{e}")
-
-        # 3. Query recall
-        query_text = query.get("text", "")
-        as_of = parse_relative_time(query.get("as_of")).isoformat() if query.get("as_of") else None
-
-        recall_resp = None
         try:
-            recall_resp = await http.post(
-                f"{MEMORY_API_URL}/v1/recall",
+            resp = await client.post(
+                "/v1/capture",
                 json={
-                    "query": query_text,
-                    "contexts": query.get("context", ["default"]),
-                    "as_of": as_of,
-                    "k": 5,
+                    "content": content,
+                    "source": source,
+                    "occurred_at": occurred_at,
+                    "context": context,
+                    "idempotency_key": f"{case_id}_setup_{idx}",
                 },
                 headers=headers,
             )
+            if resp.status_code in (200, 201):
+                ev_id = resp.json().get("event_id")
+                setup_event_ids.append(ev_id)
+
+                # Trigger extraction & application
+                await client.post(
+                    "/v1/extract",
+                    json={
+                        "event_id": ev_id,
+                        "content": content,
+                        "speaker": "user",
+                        "captured_at": occurred_at,
+                        "context": context,
+                    },
+                    headers=headers,
+                )
+            else:
+                setup_event_ids.append(f"err_{resp.status_code}")
         except Exception as e:
-            pass
+            setup_event_ids.append(f"exc_{e}")
+
+        # Pacing to avoid burst token rate limiting on free tier
+        await asyncio.sleep(2.0)
+
+    # 3. Query recall
+    query_text = query.get("text", "")
+    recall_resp = None
+    try:
+        recall_resp = await client.post(
+            "/v1/recall",
+            json={
+                "query": query_text,
+                "context": "default",
+                "limit": 5,
+            },
+            headers=headers,
+        )
+    except Exception as e:
+        pass
 
     # 4. Evaluate expectations
-    passed = False
     reasons: list[str] = []
     top_k_pass = True
 
@@ -142,15 +154,15 @@ async def run_eval_case(case_path: Path, pool: asyncpg.Pool) -> dict[str, Any]:
         reasons.append(f"Recall API call failed or returned status {getattr(recall_resp, 'status_code', 'None')}")
     else:
         data = recall_resp.json()
-        memories = data.get("memories", [])
-        answer = data.get("answer", "")
+        memories = data.get("results", [])
+        answer = " ".join([m.get("statement", "") for m in memories])
 
         # Check answer_contains_any
         if "answer_contains_any" in expect:
             matched = any(s.lower() in answer.lower() for s in expect["answer_contains_any"])
             if not matched:
                 top_k_pass = False
-                reasons.append(f"Answer '{answer}' did not contain any of {expect['answer_contains_any']}")
+                reasons.append(f"Answer statements '{answer}' did not contain any of {expect['answer_contains_any']}")
 
         # Check top_k_contains_setup
         if "top_k_contains_setup" in expect:
@@ -158,7 +170,6 @@ async def run_eval_case(case_path: Path, pool: asyncpg.Pool) -> dict[str, Any]:
             k = tk_cfg.get("k", 5)
             s_idx = tk_cfg.get("index", 0)
             target_ev = setup_event_ids[s_idx] if s_idx < len(setup_event_ids) else None
-            # Check if any memory citations refer to setup event
             found_in_top_k = False
             for m in memories[:k]:
                 for c in m.get("citations", []):
@@ -167,7 +178,21 @@ async def run_eval_case(case_path: Path, pool: asyncpg.Pool) -> dict[str, Any]:
                         break
             if not found_in_top_k:
                 top_k_pass = False
-                reasons.append(f"Setup[{s_idx}] not found in top-{k} memories")
+                reasons.append(f"Setup[{s_idx}] ({target_ev}) not found in top-{k} memories")
+
+        # Check cites_setup
+        if "cites_setup" in expect:
+            for s_idx in expect["cites_setup"]:
+                target_ev = setup_event_ids[s_idx] if s_idx < len(setup_event_ids) else None
+                found = False
+                for m in memories:
+                    for c in m.get("citations", []):
+                        if c.get("event_id") == target_ev:
+                            found = True
+                            break
+                if not found:
+                    top_k_pass = False
+                    reasons.append(f"Setup[{s_idx}] ({target_ev}) was not cited by any recalled memory")
 
     passed = len(reasons) == 0
 
@@ -197,15 +222,18 @@ async def main():
         print(f"Could not connect to {TEST_DB_URL}: {e}")
         sys.exit(1)
 
-    results = []
-    for cfile in case_files:
-        res = await run_eval_case(cfile, pool)
-        results.append(res)
-        status_str = "✅ PASS" if res["passed"] else "❌ FAIL"
-        print(f"{status_str} | {res['id']:<30} | {res['category']}")
-        if not res["passed"]:
-            for r in res["reasons"]:
-                print(f"       ↳ {r}")
+    async with app.router.lifespan_context(app):
+        transport = ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test", timeout=30.0) as client:
+            results = []
+            for cfile in case_files:
+                res = await run_eval_case(cfile, client, pool)
+                results.append(res)
+                status_str = "✅ PASS" if res["passed"] else "❌ FAIL"
+                print(f"{status_str} | {res['id']:<30} | {res['category']}")
+                if not res["passed"]:
+                    for r in res["reasons"]:
+                        print(f"       ↳ {r}")
 
     await pool.close()
 

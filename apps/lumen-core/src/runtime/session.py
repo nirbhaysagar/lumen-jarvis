@@ -32,46 +32,6 @@ from ..vault.document_vault import DocumentVault
 from ..router.agent_loop import LumenAgentLoop
 
 
-def classify_preference(text: str) -> tuple[str, str]:
-    """Categorizes user decisions into domain-specific entities to preserve orthogonal bi-temporal lineages."""
-    lowered = text.lower()
-    if any(k in lowered for k in ["database", "db", "postgres", "postgresql", "mysql", "mongodb", "sqlite", "redis"]):
-        return "user_preference", "database"
-    if any(k in lowered for k in ["editor", "ide", "vscode", "vs code", "cursor", "vim", "neovim", "sublime"]):
-        return "user_preference", "editor"
-    if any(k in lowered for k in ["language", "python", "typescript", "javascript", "rust", "golang", "go", "c++"]):
-        return "user_preference", "programming_language"
-    if any(k in lowered for k in ["framework", "fastapi", "react", "nextjs", "django", "vue"]):
-        return "user_preference", "framework"
-    if any(k in lowered for k in ["theme", "dark mode", "light mode", "color", "font", "ui"]):
-        return "user_preference", "ui_theme"
-    return "user_preference", "general"
-
-
-def extract_triples_from_utterance(text: str) -> list[tuple[str, str, str]]:
-    """Extracts candidate relational triples (Subject, Predicate, Object) from conversational text."""
-    lowered = text.lower().strip()
-    triples = []
-
-    m_pref = re.search(r'\bi prefer\s+([a-zA-Z0-9_\-\.\s]+?)(?:$|\.|\,)', lowered)
-    if m_pref:
-        triples.append(("User", "PREFERS", m_pref.group(1).strip().rstrip('.,;!?').title()))
-
-    m_dis = re.search(r'\b(?:i dislike|never use)\s+([a-zA-Z0-9_\-\.\s]+?)(?:$|\.|\,)', lowered)
-    if m_dis:
-        triples.append(("User", "DISLIKES", m_dis.group(1).strip().rstrip('.,;!?').title()))
-
-    m_f = re.search(r'\bi (?:founded|started)\s+([a-zA-Z0-9_\-\.\s]+?)(?:$|\.|\,)', lowered)
-    if m_f:
-        triples.append(("User", "FOUNDED", m_f.group(1).strip().rstrip('.,;!?').title()))
-
-    m_tech = re.search(r'\b(?:we use|we are using|uses)\s+([a-zA-Z0-9_\-\.]+)', lowered)
-    if m_tech:
-        triples.append(("Project Lumen", "USES", m_tech.group(1).rstrip('.,;!?').title()))
-
-    return triples
-
-
 class ConversationSession:
     def __init__(
         self,
@@ -690,52 +650,26 @@ class ConversationSession:
         self.history.append({"role": "user", "content": user_text})
         self.history.append({"role": "assistant", "content": assistant_text})
 
-        # 6. Asynchronously persist interaction to Memory Engine (L0 Event)
-        event_res = await self.memory.save_event(
-            source="user_cli",
-            payload={"user": user_text, "assistant": assistant_text},
-            conversation_id=self.conversation_id,
+        # 6. Capture interaction to Memory Engine L0 Event Log & Extract Verifiable Memories
+        capture_res = await self.memory.capture(
+            content=user_text,
+            source={"kind": "chat", "title": f"chat_{self.conversation_id}", "author": "user"},
             idempotency_key=f"turn_{self.conversation_id}_{len(self.history)//2}",
             trace_id=trace_id,
         )
-
-        # 7. Auto-detect explicit user decisions or preferences to store as L1 Facts
-        if event_res and any(k in user_text.lower() for k in ["i prefer", "we decided", "use ", "always ", "never "]):
-            event_id = event_res.get("id")
-            if event_id:
-                entity, attribute = classify_preference(user_text)
-                await self.memory.save_fact(
-                    entity=entity,
-                    attribute=attribute,
-                    value=user_text,
-                    source_event_ids=[event_id],
-                    memory_type="decision",
-                    epistemic_type="decision",
+        if capture_res and capture_res.get("event_id"):
+            event_id = capture_res["event_id"]
+            # Trigger structured extraction with exact character-span citations & non-destructive versioning
+            try:
+                await self.memory.extract_and_apply(
+                    event_id=event_id,
+                    content=user_text,
+                    speaker="user",
                     trace_id=trace_id,
                 )
+            except Exception as e:
+                logger.warning(f"Memory extraction failed on chat turn: {e}")
 
-        # 7b. Submit extracted relationship triples to Knowledge Graph & Review Queue
-        extracted_triples = extract_triples_from_utterance(user_text)
-        if event_res and extracted_triples:
-            event_id = event_res.get("id")
-            for sub, pred, obj in extracted_triples:
-                prop_res = await self.memory.propose_triple(
-                    subject=sub,
-                    predicate=pred,
-                    object_=obj,
-                    source_event_id=event_id,
-                    trace_id=trace_id,
-                )
-                if prop_res and prop_res.get("action_taken") == "STAGED_FOR_REVIEW":
-                    proposal = prop_res.get("proposal", {})
-                    yield (
-                        f"\n\n⚡ [Review Queue Alert - Two-Man Rule]\n"
-                        f"A proposed belief update contradicts an existing active belief:\n"
-                        f"• {proposal.get('conflict_reason')}\n"
-                        f"To authorize this update, reply with: /approve-proposal {proposal.get('id')}\n"
-                        f"To reject and keep prior belief: /reject-proposal {proposal.get('id')}"
-                    )
-
-        # 8. Automated Context Compaction (Evacuates turns if high watermark is reached)
+        # 7. Automated Context Compaction (Evacuates turns if high watermark is reached)
         if self.compactor.should_compact(self.history):
             self.history, _ = self.compactor.compact(self.conversation_id, self.history)

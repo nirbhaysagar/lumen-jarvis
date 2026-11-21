@@ -28,7 +28,7 @@ class MemoryServiceClient:
     ):
         import os
         if base_url is None:
-            base_url = os.getenv("LUMEN_MEMORY_URL", "http://127.0.0.1:7420")
+            base_url = os.getenv("LUMEN_MEMORY_URL") or os.getenv("MEMORY_ENGINE_URL", "http://127.0.0.1:8000")
         self.base_url = base_url.rstrip("/")
         self.token = token or os.getenv("LUMEN_MEMORY_TOKEN")
         self.max_failures = max_consecutive_failures
@@ -48,6 +48,110 @@ class MemoryServiceClient:
         if self.failure_count >= self.max_failures:
             self.circuit_open = True
             logger.warning("Memory Service circuit breaker TRIPPED! Falling back to offline mode.")
+
+    async def recall(
+        self,
+        query: str,
+        context: str = "default",
+        limit: int = 5,
+        threshold: float = 0.01,
+        trace_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """5-channel hybrid recall (vector, lexical, entity, graph, temporal) via POST /v1/recall."""
+        if self.circuit_open:
+            return []
+
+        headers = {"X-Trace-ID": trace_id} if trace_id else {}
+        try:
+            resp = await self._client.post(
+                f"{self.base_url}/v1/recall",
+                headers=headers,
+                json={"query": query, "context": context, "limit": limit, "threshold": threshold},
+            )
+            if resp.status_code == 200:
+                self._record_success()
+                return resp.json().get("results", [])
+            else:
+                self._record_failure()
+                return []
+        except Exception as e:
+            logger.debug(f"Memory service recall error: {e}")
+            self._record_failure()
+            return []
+
+    async def capture(
+        self,
+        content: str,
+        source: dict[str, Any] | None = None,
+        context: str = "default",
+        occurred_at: str | None = None,
+        idempotency_key: str | None = None,
+        trace_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Synchronously captures raw text into the L0 event log (POST /v1/capture)."""
+        if self.circuit_open:
+            return None
+
+        headers = {"X-Trace-ID": trace_id} if trace_id else {}
+        payload = {
+            "content": content,
+            "source": source or {"kind": "chat", "title": "chat utterance", "author": "user"},
+            "context": context,
+            "occurred_at": occurred_at,
+            "idempotency_key": idempotency_key,
+        }
+        try:
+            resp = await self._client.post(
+                f"{self.base_url}/v1/capture",
+                headers=headers,
+                json=payload,
+            )
+            if resp.status_code in (200, 201):
+                self._record_success()
+                return resp.json()
+            else:
+                self._record_failure()
+                return None
+        except Exception as e:
+            logger.debug(f"Memory service capture error: {e}")
+            self._record_failure()
+            return None
+
+    async def extract_and_apply(
+        self,
+        event_id: str,
+        content: str | None = None,
+        speaker: str = "user",
+        context: str = "default",
+        trace_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Extracts structured memories with verified character-span citations (POST /v1/extract)."""
+        if self.circuit_open:
+            return None
+
+        headers = {"X-Trace-ID": trace_id} if trace_id else {}
+        payload = {
+            "event_id": event_id,
+            "content": content,
+            "speaker": speaker,
+            "context": context,
+        }
+        try:
+            resp = await self._client.post(
+                f"{self.base_url}/v1/extract",
+                headers=headers,
+                json=payload,
+            )
+            if resp.status_code == 200:
+                self._record_success()
+                return resp.json()
+            else:
+                self._record_failure()
+                return None
+        except Exception as e:
+            logger.debug(f"Memory service extract error: {e}")
+            self._record_failure()
+            return None
 
     async def search_memories(
         self,
@@ -88,11 +192,16 @@ class MemoryServiceClient:
     ) -> list[dict[str, Any]]:
         """
         Unified Hybrid Retrieval Service.
-        Merges lexical BM25, dense vector pgvector, and Knowledge Graph traversal
-        using Reciprocal Rank Fusion (RRF).
+        First attempts 5-channel hybrid recall (/v1/recall).
+        Falls back to legacy /api/v1/search/hybrid if needed.
         """
         if self.circuit_open:
             return []
+
+        # Fast path: 5-channel recall
+        recalls = await self.recall(query=query, limit=limit, trace_id=trace_id)
+        if recalls:
+            return recalls
 
         headers = {"X-Trace-ID": trace_id} if trace_id else {}
         try:

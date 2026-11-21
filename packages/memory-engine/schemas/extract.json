@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LumenExtraction",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["entities", "memories"],
+  "properties": {
+    "entities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ref", "name", "kind"],
+        "properties": {
+          "ref": {"type": "string", "pattern": "^e[0-9]+$"},
+          "name": {"type": "string", "minLength": 1},
+          "kind": {"enum": ["person", "org", "project", "tool", "place", "concept", "document", "other"]},
+          "aliases": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "memories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ref", "type", "epistemic", "asserted_by", "statement", "evidence", "confidence", "importance"],
+        "properties": {
+          "ref": {"type": "string", "pattern": "^m[0-9]+$"},
+          "type": {
+            "enum": ["fact", "decision", "goal", "assumption", "insight", "question", "action", "constraint", "event"]
+          },
+          "epistemic": {"enum": ["fact", "belief", "inference", "decision"]},
+          "asserted_by": {"type": "string"},
+          "statement": {"type": "string", "minLength": 5, "maxLength": 300},
+          "subject": {"type": ["string", "null"], "pattern": "^e[0-9]+$"},
+          "predicate": {"type": ["string", "null"], "pattern": "^[a-z][a-z0-9_]{1,40}$"},
+          "object": {"type": ["string", "null"], "pattern": "^e[0-9]+$"},
+          "object_value": {"type": ["string", "number", "boolean", "null"]},
+          "cardinality": {"enum": ["one", "many"]},
+          "polarity": {"type": "boolean"},
+          "valid_from": {"type": ["string", "null"], "format": "date-time"},
+          "valid_to": {"type": ["string", "null"], "format": "date-time"},
+          "evidence": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 3,
+            "items": {"type": "string", "minLength": 3, "maxLength": 400}
+          },
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+          "importance": {"type": "number", "minimum": 0, "maximum": 1},
+          "change_cue": {"type": "boolean"},
+          "relations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "to"],
+              "properties": {
+                "type": {
+                  "enum": ["SUPPORTS", "CONTRADICTS", "DEPENDS_ON", "CAUSED_BY", "PART_OF", "RELATED_TO"]
+                },
+                "to": {"type": "string", "pattern": "^m[0-9]+$"}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

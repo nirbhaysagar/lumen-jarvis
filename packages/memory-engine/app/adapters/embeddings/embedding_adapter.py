@@ -13,11 +13,11 @@ from app.domain.ports import EmbeddingPort
 
 class DeterministicHashEmbeddingAdapter(EmbeddingPort):
     """
-    Zero-external-dependency, deterministic 1536-dimensional embedding generator.
+    Zero-external-dependency, deterministic 768-dimensional embedding generator.
     Used for local testing, offline development, and unit test suites.
     Produces unit-length (normalized) vectors based on n-gram feature hashing.
     """
-    def __init__(self, dimension: int = 1536):
+    def __init__(self, dimension: int = 768):
         self._dim = dimension
 
     @property
@@ -49,6 +49,39 @@ class DeterministicHashEmbeddingAdapter(EmbeddingPort):
         else:
             vec[0] = 1.0
         return vec
+
+
+class OllamaEmbeddingAdapter(EmbeddingPort):
+    """
+    Local embedding adapter calling Ollama embedding API (e.g. nomic-embed-text, 768 dimensions).
+    """
+    def __init__(self, base_url: str = "http://127.0.0.1:11434", model: str = "nomic-embed-text", dimension: int = 768):
+        self._base_url = base_url.rstrip("/")
+        self._model = model
+        self._dim = dimension
+        self._client = httpx.AsyncClient(timeout=10.0)
+
+    @property
+    def dimension(self) -> int:
+        return self._dim
+
+    async def generate_embedding(self, text: str) -> list[float]:
+        resp = await self._client.post(
+            f"{self._base_url}/api/embed",
+            json={"model": self._model, "input": text},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        embeddings = data.get("embeddings") or []
+        if embeddings:
+            return embeddings[0]
+        # Fallback to single embed endpoint
+        resp2 = await self._client.post(
+            f"{self._base_url}/api/embeddings",
+            json={"model": self._model, "prompt": text},
+        )
+        resp2.raise_for_status()
+        return resp2.json().get("embedding", [0.0] * self._dim)
 
 
 class OpenAIEmbeddingAdapter(EmbeddingPort):
