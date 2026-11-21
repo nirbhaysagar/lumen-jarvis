@@ -182,6 +182,41 @@ AGENT_TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "data_commons",
+            "description": (
+                "Authoritative empirical data grounding via Google Data Commons Knowledge Graph. "
+                "Retrieves verified, official time-series statistics and datasets from UN, World Bank, "
+                "US Census Bureau, CDC, Eurostat, NOAA, and IPCC. "
+                "Use when the user asks for official statistics, historical indicators, or data tables "
+                "for economic, demographic, health, climate, or energy metrics (e.g. 'population of California', "
+                "'carbon emissions per capita in Germany', 'US unemployment rate history'). "
+                "Exports clean CSV datasets directly to vault/scratch/ for downstream analysis."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Natural language query describing the statistical metrics and places to look up.",
+                    },
+                    "places": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional list of country, state, or city names (e.g. ['United States', 'Germany']).",
+                    },
+                    "variables": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional list of StatisticalVariable DCIDs or indicator keywords (e.g. ['Amount_Emissions_CarbonDioxide_PerCapita']).",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
 ]
 
 
@@ -353,6 +388,37 @@ class LumenAgentLoop:
                         yield t
                         tokens.append(t)
                     tool_result_str = "".join(tokens)
+
+                # Route F: Google Data Commons
+                elif name == "data_commons":
+                    query = args.get("query", user_input)
+                    places = args.get("places")
+                    variables = args.get("variables")
+                    yield f"🏛️ Querying Google Data Commons for: '{query}'...\n"
+                    res = self.session.data_commons.ground_query(
+                        query=query,
+                        places=places,
+                        variables=variables,
+                    )
+                    if res.get("success"):
+                        csv_file = res.get("csv_filename")
+                        rows = res.get("rows", 0)
+                        provs = res.get("provenances", [])
+                        yield f"✅ Verified Data Commons dataset retrieved ({rows} rows, saved to `{csv_file}`).\n"
+                        if provs:
+                            yield f"• Provenance: {', '.join(provs[:2])}\n"
+                        tool_result_str = (
+                            f"Data Commons grounding successful.\n"
+                            f"CSV file saved: {res.get('csv_path')}\n"
+                            f"Entities resolved: {res.get('entities')}\n"
+                            f"Variables: {res.get('variables')}\n"
+                            f"Records: {rows}\n"
+                            f"Sample Data:\n{res.get('summary_md')}\n"
+                            f"Provenances: {provs}"
+                        )
+                    else:
+                        tool_result_str = f"Data Commons query could not resolve records: {res.get('reason')}"
+                        yield f"⚠️ {tool_result_str}\n"
 
                 else:
                     tool_result_str = f"Unknown tool: {name}"

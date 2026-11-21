@@ -19,6 +19,7 @@
 | **Phase 6** | Autonomous Web & Deep Research ("The Eyes") | **COMPLETE** | Query De-Optimizer, Multi-Source Discovery (Web, HN Algolia, Reddit, arXiv), Anti-SEO Citation Walking, Prompt Injection Shield, Crawl4AI + MarkItDown, Obsidian Research Dossiers | Automated test suite (63/63 tests passed), Live REPL `/research`, `/dossiers`, `/dossier` verified |
 | **Phase 7** | Voice & Barge-in Gateway ("The Senses") | **COMPLETE** | Full-duplex WebSocket (`ws://0.0.0.0:8765/voice`), Silero VAD, EchoGate dynamic modulation, sub-50ms Barge-In Preemption, Syntactic Clause Chunking, Whisper STT + Neural TTS, Hands-Free openWakeWord Daemon ("Hey Jarvis") + Hann Acoustic Chimes | Automated test suite (15 voice/wake tests passed), Monorepo 82/82 tests green |
 | **Sentinel** | Autonomous Sentinel Daemon ("The Watchman") | **COMPLETE** | Tri-Vector Proactive System Inspection (Host Disk/RAM/CPU, Docker Containers, Git Workspace), Alert Deduplication Keying, Proactive Conversation Turn Prepending, Obsidian Incident Archiving | Automated sentinel test suite (7/7 passed), Monorepo 89/89 tests green |
+| **Phase 8** | Visual Analytics & Google Data Commons Grounding | **COMPLETE** | Layer 1 Empirical Grounding Gate, Google Data Commons Knowledge Graph (API v2), Persistent Jupyter Kernel, Self-Correction AST Loop, Dark-Mode Matplotlib, Obsidian Dossiers | Automated test suite (7/7 passed in 27s), live empirical time-series verified |
 
 ---
 
@@ -41,6 +42,7 @@
 | **ADR-013** | Sub-Second Full-Duplex Voice Gateway, Echo Gate & Sub-50ms Barge-In Preemption | Discrete 16kHz PCM Framing + Silero VAD + Dynamic EchoGate ($\tau: 0.50 \to 0.85$, $E: -45 \to -28\text{ dBFS}$) + Syntactic Clause Chunker + Immediate Preemption Queue Flushing | Half-duplex turn-taking, Cloud monolithic audio APIs, Blind client-side VAD | Delivers natural conversational cadence with sub-250ms Time-to-First-Audio (TTFA); prevents Lumen from cutting himself off on his own speaker playback; preempts LLM generation and output audio in under 50ms upon genuine user speech onset. |
 | **ADR-014** | Ambient Hands-Free Wake-Word Daemon, openWakeWord Neural Model & Earcon Chimes | Two-State Ambient Machine (`DORMANT_LISTENING` vs `ACTIVE_CONVERSATION`) + Low-Power ONNX Model (`hey_jarvis`, 1280 samples / 80ms) + Hann-Enveloped Synthesized Chimes (Ascending D5 $\to$ A5, Descending A5 $\to$ D5) + Automatic Idle Silence Watchdog | Continuous cloud STT streaming, OS hotkeys alone | True hands-free ambient computing at <2% CPU usage without privacy exposure or battery exhaustion; provides crisp acoustic feedback earcons without external audio assets. |
 | **ADR-015** | Autonomous Sentinel Daemon ("The Watchman") & Tri-Vector Proactive System Inspection | Multi-Probe Concurrent Async Polling (`psutil` host resources, async Docker JSON inspection, Git porcelain status) + Alert Deduplication Keying + Proactive Turn Prepending + Immutable Incident Vault Archiving (`vault/sentinel/latest.md`) | Synchronous CLI polling, External Prometheus/Grafana stack alone, Blind alert spam | Grants Lumen continuous operational self-awareness to proactively detect degraded infrastructure, crashed databases, and uncommitted code before the operator asks, while preventing notification fatigue through state-based alert deduplication. |
+| **ADR-016** | Google Data Commons Knowledge Graph Grounding | `datacommons-client` v2 + Canonical DCID Entity/Indicator Resolution + Automatic Scratch CSV Export | Web search scraping alone, Hardcoded statistical tables | Unifies access to 250B+ data points from authoritative institutions (UN, World Bank, US Census, Eurostat, CDC, IPCC, NOAA). Guarantees empirical data integrity with official provenance URLs, preventing hallucination in macroeconomic, demographic, and climate analytics. |
 
 ---
 
@@ -398,6 +400,28 @@
 - **Verification & Test Results:**
   - `apps/lumen-core/tests/test_sentinel_daemon.py`: 7 passing tests in **3.73s** (system probe, docker probe, git probe, vault report export, alert deduplication & resolution, lifecycle, session turn alert prepending).
   - Monorepo test suite: **89/89 automated tests green (100%)** (73 `lumen-core`, 16 `memory-engine`).
+
+---
+
+### Phase 8: Autonomous Visual Analytics ("The Analyst") & Google Data Commons Grounding
+- **Technique:** Multi-Tier Data Grounding Gate + Persistent Jupyter Kernel Execution with AST Self-Correction Loop + Google Data Commons Knowledge Graph (API v2) + Dark-Mode Matplotlib Synthesis.
+- **Components & Microservices:**
+  - `DataCommonsTool` (`apps/lumen-core/src/tools/data_commons.py`):
+    - Direct integration with Google Data Commons Knowledge Graph (aggregating UN, World Bank, US Census Bureau, CDC, Eurostat, NOAA, IPCC) via `datacommons-client` (API v2).
+    - Entity place resolution: dynamically maps country, state, and metropolitan names into canonical Data Commons DCIDs (e.g. `country/USA`, `country/DEU`, `country/IND`, `country/SWE`, `geoId/06`).
+    - Semantic statistical indicator discovery: resolves high-level topics and keywords to official `StatisticalVariable` nodes (`FertilityRate_Person_Female`, `Amount_Emissions_CarbonDioxide_PerCapita`, `UnemploymentRate_Person`, `LifeExpectancy_Person`).
+    - Empirical data extraction: executes time-series observations query, exports verified CSV datasets directly into `vault/scratch/`, and preserves exact provenance source URLs for dossier citations.
+  - `AnalystEngine` (`apps/lumen-core/src/analytics/engine.py`):
+    - **Layer 1 (Data Grounding Gate):** Enforces empirical reality before computation. If local datasets exist (`.csv`, `.xlsx`, `.pdf`), loads them directly. Otherwise, attempts Google Data Commons knowledge graph resolution. If not an official statistical indicator (e.g. private enterprise metrics like GTA 6 bookings), gracefully falls back to anti-SEO multi-source web discovery.
+    - **Layer 2 (Sandboxed Code Synthesis):** Generates clean Pandas + Matplotlib logic bound to `lumen_dark.mplstyle`.
+    - **Layer 3 (Self-Correction Loop):** Implements an Open Interpreter-style 3-attempt retry loop on tracebacks within the persistent IPython kernel.
+    - **Layer 4 (Obsidian Dossier Archival):** Emits reproducible markdown dossiers to `vault/analytics/<slug>.md` with embedded charts and folded audit code blocks.
+  - `LumenAgentLoop` (`apps/lumen-core/src/router/agent_loop.py`):
+    - Registered `data_commons` tool schema for autonomous agent dispatch.
+    - Routes `data_commons` tool calls to `self.session.data_commons.ground_query`.
+- **Verification & Test Results:**
+  - `apps/lumen-core/tests/test_data_commons.py`: 5 passing tests in **12.79s** (tool schema, place resolution, indicator discovery, live observation grounding, AnalystEngine Layer 1 integration).
+  - Monorepo analytical pipeline: **7/7 analytical & data commons tests green (100%)**.
 
 ---
 

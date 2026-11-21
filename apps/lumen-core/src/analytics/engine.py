@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from src.tools.kernel import PythonKernelManager
+from src.tools.data_commons import DataCommonsTool
 from src.router.model_router import ModelRouter
 from src.research.agent import DeepResearchAgent
 from src.vault.document_vault import DocumentVault
@@ -49,6 +50,7 @@ class AnalystEngine:
         router: Optional[ModelRouter] = None,
         research_agent: Optional[DeepResearchAgent] = None,
         document_vault: Optional[DocumentVault] = None,
+        data_commons: Optional[DataCommonsTool] = None,
         workspace_root: Optional[Path] = None,
     ):
         self.workspace_root = workspace_root or Path(__file__).resolve().parents[4]
@@ -56,6 +58,7 @@ class AnalystEngine:
         self.router = router or ModelRouter()
         self.research = research_agent or DeepResearchAgent()
         self.doc_vault = document_vault or DocumentVault()
+        self.dc_tool = data_commons or DataCommonsTool(workspace_root=self.workspace_root)
 
         self.analytics_dir = self.workspace_root / "vault" / "analytics"
         self.charts_dir = self.workspace_root / "vault" / "charts"
@@ -125,33 +128,71 @@ class AnalystEngine:
                     f"Do NOT invent or mock data."
                 )
         else:
-            # Detect if query involves external facts that must be fetched
-            is_external_topic = any(
-                k in prompt.lower()
-                for k in ["revenue", "sales", "gdp", "market", "valuation", "stock", "population", "price", "trend", "so far", "growth"]
-            )
+            # First attempt empirical grounding via Google Data Commons (UN, World Bank, Census, Eurostat)
+            dc_grounded = False
+            try:
+                dc_res = self.dc_tool.ground_query(prompt, slug=slug)
+                if dc_res.get("success") and dc_res.get("csv_path"):
+                    dc_csv_path = dc_res["csv_path"]
+                    csv_name = dc_res.get("csv_filename", Path(dc_csv_path).name)
+                    rows = dc_res.get("rows", 0)
+                    entities = list(dc_res.get("entities", {}).keys())
+                    variables = dc_res.get("variables", [])
+                    provenances = dc_res.get("provenances", [])
 
-            if is_external_topic:
-                yield "🌐 Querying live intelligence sources for verified statistics (anti-hallucination protocol)...\n"
-                try:
-                    # Run focused multi-source search
-                    search_results = await self.research.discovery.search(prompt, max_per_source=3)
-                    sources = [r.url for r in search_results if r.url]
-                    snippets = [f"• [{r.title}]({r.url}): {r.snippet}" for r in search_results[:4]]
-                    raw_data_summary = "\n".join(snippets)
+                    yield f"🏛️ **Google Data Commons Grounding** — Verified empirical time-series dataset resolved ({rows} records across {', '.join(entities)}).\n"
+                    if provenances:
+                        sources.extend(provenances)
+                        yield f"• Verified Data Provenance: {', '.join(provenances[:3])}\n"
+                    else:
+                        sources.append("https://datacommons.org")
 
-                    # Persist raw grounded facts into session scratchpad
-                    scratch_file = self.scratch_dir / f"{slug}_{timestamp}_raw.json"
-                    scratch_file.write_text(
-                        json.dumps(
-                            {"prompt": prompt, "sources": sources, "snippets": [r.model_dump() for r in search_results]},
-                            indent=2,
-                        )
+                    scratch_file_rel = f"vault/scratch/{csv_name}"
+                    raw_data_summary = (
+                        f"Verified Empirical Dataset from Google Data Commons:\n"
+                        f"CSV File Path: '{dc_csv_path}'\n"
+                        f"Entities: {entities}\n"
+                        f"Variables: {variables}\n"
+                        f"Columns: {dc_res.get('columns', [])}\n"
+                        f"Sample Records:\n{dc_res.get('summary_md', '')}\n\n"
+                        f"CRITICAL EXECUTION REQUIREMENT: You MUST load this grounded dataset directly using: "
+                        f"`df = pd.read_csv(r'{dc_csv_path}')`. "
+                        f"Analyze values across dates, compute relevant summary statistics (totals, CAGR, averages), "
+                        f"and generate an elegant dark-mode visualization for each entity/metric."
                     )
-                    scratch_file_rel = f"vault/scratch/{scratch_file.name}"
-                    yield f"📁 Raw empirical dataset grounded to `{scratch_file_rel}` ({len(search_results)} sources).\n\n"
-                except Exception as e:
-                    yield f"⚠️ Web grounding notice: {e}. Proceeding with historical Take-Two / analyst segment filings.\n\n"
+                    dc_grounded = True
+                    yield f"📁 Verified empirical dataset grounded to `{scratch_file_rel}`.\n\n"
+            except Exception as e:
+                logger.warning(f"Data Commons grounding attempt error: {e}")
+
+            if not dc_grounded:
+                # Detect if query involves external facts that must be fetched
+                is_external_topic = any(
+                    k in prompt.lower()
+                    for k in ["revenue", "sales", "gdp", "market", "valuation", "stock", "population", "price", "trend", "so far", "growth"]
+                )
+
+                if is_external_topic:
+                    yield "🌐 Querying live intelligence sources for verified statistics (anti-hallucination protocol)...\n"
+                    try:
+                        # Run focused multi-source search
+                        search_results = await self.research.discovery.search(prompt, max_per_source=3)
+                        sources = [r.url for r in search_results if r.url]
+                        snippets = [f"• [{r.title}]({r.url}): {r.snippet}" for r in search_results[:4]]
+                        raw_data_summary = "\n".join(snippets)
+
+                        # Persist raw grounded facts into session scratchpad
+                        scratch_file = self.scratch_dir / f"{slug}_{timestamp}_raw.json"
+                        scratch_file.write_text(
+                            json.dumps(
+                                {"prompt": prompt, "sources": sources, "snippets": [r.model_dump() for r in search_results]},
+                                indent=2,
+                            )
+                        )
+                        scratch_file_rel = f"vault/scratch/{scratch_file.name}"
+                        yield f"📁 Raw empirical dataset grounded to `{scratch_file_rel}` ({len(search_results)} sources).\n\n"
+                    except Exception as e:
+                        yield f"⚠️ Web grounding notice: {e}. Proceeding with historical Take-Two / analyst segment filings.\n\n"
 
         # ----------------------------------------------------------------------
         # Layer 2 & 3: Code Generation & Execution with Self-Correction Loop

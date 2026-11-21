@@ -54,3 +54,7 @@ out/
 .vscode/
 *.swp
 *.swo
+
+# Runtime & Scratch
+vault/scratch/
+*.png
