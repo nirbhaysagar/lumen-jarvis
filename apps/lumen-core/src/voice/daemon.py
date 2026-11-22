@@ -88,15 +88,26 @@ class WakeWordDaemon:
             except Exception:
                 pass
 
-    async def transition_to_dormant(self) -> None:
-        """Transitions daemon back to low-power dormant listening."""
+    async def transition_to_dormant(self, cooldown_sec: float = 2.0) -> None:
+        """Transitions daemon back to low-power dormant listening with acoustic refractory cooldown."""
         if self.state != WakeWordDaemonState.ACTIVE_CONVERSATION:
             return
         logger.info("Transitioning to DORMANT_LISTENING mode.")
         sleep_chime = self.chime.create_sleep_chime()
         if self.use_hardware_audio:
             self.chime.play(sleep_chime)
+
         self.coordinator.reset()
+        self.detector.reset()
+        self.detector.arm_cooldown(cooldown_sec)
+
+        # Drain any residual inbound audio from the conversation or sleep chime
+        while not self._inbound_queue.empty():
+            try:
+                self._inbound_queue.get_nowait()
+            except Exception:
+                break
+
         self._transition_to(WakeWordDaemonState.DORMANT_LISTENING)
 
     def _transition_to(self, new_state: WakeWordDaemonState) -> None:

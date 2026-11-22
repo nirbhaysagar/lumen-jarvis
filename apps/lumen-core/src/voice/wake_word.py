@@ -15,7 +15,7 @@ class WakeWordDetector:
     def __init__(
         self,
         model_name: str = "hey_jarvis",
-        threshold: float = 0.40,
+        threshold: float = 0.55,
         refractory_sec: float = 2.0,
         simulated: bool = False,
     ):
@@ -117,8 +117,12 @@ class WakeWordDetector:
         samples = np.frombuffer(pcm_bytes, dtype=np.int16)
         return self.process_samples(samples)
 
+    def arm_cooldown(self, cooldown_sec: float = 2.0) -> None:
+        """Enforces a refractory silence period during which wake triggers are blocked."""
+        self._last_trigger_time = time.time() + cooldown_sec
+
     def reset(self) -> None:
-        """Flushes sample buffer and state."""
+        """Flushes sample buffer, state, and clears trigger flags."""
         self._sample_buffer = np.array([], dtype=np.int16)
         self._simulated_trigger_flag = False
         if self._model:

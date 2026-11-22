@@ -168,3 +168,44 @@ async def test_wake_word_daemon_speech_keeps_session_alive():
     assert daemon.state == WakeWordDaemonState.ACTIVE_CONVERSATION
 
     await daemon.stop()
+
+
+@pytest.mark.asyncio
+async def test_sleep_transition_flushes_queue_and_enforces_cooldown():
+    detector = WakeWordDetector(model_name="hey_jarvis", simulated=True, refractory_sec=0.1)
+    coordinator = VoicePipelineCoordinator()
+
+    daemon = WakeWordDaemon(
+        coordinator=coordinator,
+        detector=detector,
+        idle_timeout_sec=10.0,
+        use_hardware_audio=False,
+    )
+
+    await daemon.start()
+    detector.simulate_trigger()
+    dummy_block = bytes(1280 * 2)
+    await daemon.feed_audio_chunk(dummy_block)
+    await asyncio.sleep(0.05)
+    assert daemon.state == WakeWordDaemonState.ACTIVE_CONVERSATION
+
+    # Feed extra residual audio chunks into inbound queue
+    await daemon.feed_audio_chunk(dummy_block)
+    await daemon.feed_audio_chunk(dummy_block)
+    assert not daemon._inbound_queue.empty()
+
+    # Trigger transition to dormant with cooldown
+    await daemon.transition_to_dormant(cooldown_sec=0.5)
+
+    assert daemon.state == WakeWordDaemonState.DORMANT_LISTENING
+    # Inbound queue should be completely drained
+    assert daemon._inbound_queue.empty()
+
+    # Immediate simulated trigger should be BLOCKED by cooldown
+    detector.simulate_trigger()
+    await daemon.feed_audio_chunk(dummy_block)
+    await asyncio.sleep(0.05)
+    # Should STILL be DORMANT because cooldown prevented immediate re-wake
+    assert daemon.state == WakeWordDaemonState.DORMANT_LISTENING
+
+    await daemon.stop()
