@@ -13,7 +13,7 @@ class EchoGate:
         self,
         tau_idle: float = 0.50,
         tau_speaking: float = 0.85,
-        energy_floor_idle_dbfs: float = -45.0,
+        energy_floor_idle_dbfs: float = -38.0,
         energy_floor_speaking_dbfs: float = -28.0,
         min_consecutive_onset_idle: int = 2,
         min_consecutive_onset_speaking: int = 3,

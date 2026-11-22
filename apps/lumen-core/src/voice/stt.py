@@ -1,4 +1,5 @@
 import io
+import logging
 import os
 import time
 import wave
@@ -8,6 +9,7 @@ import httpx
 from dotenv import find_dotenv, load_dotenv
 from src.voice.models import AudioFrame
 
+logger = logging.getLogger("lumen.voice.stt")
 load_dotenv(find_dotenv(usecwd=True))
 
 
@@ -140,6 +142,12 @@ class WhisperSTTProvider(STTProvider):
                     payload = resp.json()
                     return payload.get("text", "").strip()
                 else:
-                    return await self._mock_fallback.transcribe(pcm_bytes, sample_rate=sample_rate)
-        except Exception:
-            return await self._mock_fallback.transcribe(pcm_bytes, sample_rate=sample_rate)
+                    logger.warning(f"Whisper STT returned HTTP {resp.status_code}: {resp.text[:120]}")
+                    if os.getenv("TESTING") == "1":
+                        return await self._mock_fallback.transcribe(pcm_bytes, sample_rate=sample_rate)
+                    return ""
+        except Exception as e:
+            logger.warning(f"Whisper STT request exception: {e}")
+            if os.getenv("TESTING") == "1":
+                return await self._mock_fallback.transcribe(pcm_bytes, sample_rate=sample_rate)
+            return ""

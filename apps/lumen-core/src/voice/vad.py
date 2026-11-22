@@ -55,13 +55,14 @@ class SileroVAD:
         rms = frame.rms()
         dbfs = frame.dbfs()
 
-        # 1. Energy factor: Human conversational speech typically sits between -40 dBFS and -10 dBFS
-        if dbfs < -55.0:
+        # 1. Energy factor: Human conversational speech typically sits between -38 dBFS and -10 dBFS
+        # Ambient noise floor raised to -45 dBFS to prevent room hiss / laptop fans from qualifying
+        if dbfs < -45.0:
             energy_score = 0.0
         elif dbfs > -15.0:
             energy_score = 1.0
         else:
-            energy_score = (dbfs + 55.0) / 40.0
+            energy_score = (dbfs + 45.0) / 30.0
 
         # 2. Zero-crossing rate (ZCR): Speech consonants/vowels have characteristic ZCR
         signs = np.sign(data_np)

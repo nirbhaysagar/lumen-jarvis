@@ -332,3 +332,107 @@ async def test_barge_in_preempts_active_generation():
     assert not coordinator.player.is_playing
     assert coordinator.player.queued_frames_count == 0
     assert coordinator.metrics.barge_in_events >= 1
+
+
+def test_whisper_hallucination_and_sleep_filters():
+    from src.voice.filters import is_whisper_hallucination, is_sleep_command
+
+    # 1. Hallucination filter
+    assert is_whisper_hallucination("")
+    assert is_whisper_hallucination(".")
+    assert is_whisper_hallucination("...")
+    assert is_whisper_hallucination("Thank you.")
+    assert is_whisper_hallucination("Thank you")
+    assert is_whisper_hallucination("Rational.")
+    assert is_whisper_hallucination("Beams.")
+    assert is_whisper_hallucination("thank you very much.")
+    assert is_whisper_hallucination("Subtitles by the Amara.org community")
+    assert is_whisper_hallucination("thank you thank you")
+
+    # Real human commands should NOT be treated as hallucinations
+    assert not is_whisper_hallucination("Hello Lumen, status report")
+    assert not is_whisper_hallucination("Check the latest 5 git commits")
+    assert not is_whisper_hallucination("Create a folder called test_lumen_demo")
+    assert not is_whisper_hallucination("How much carbon is emitted by Germany?")
+
+    # 2. Voice sleep commands
+    assert is_sleep_command("stop")
+    assert is_sleep_command("okay stop")
+    assert is_sleep_command("Okay stop. Hijabay stop.")
+    assert is_sleep_command("shut up")
+    assert is_sleep_command("go to sleep")
+    assert is_sleep_command("Hey Jarvis, sleep")
+    assert is_sleep_command("please stop")
+    assert is_sleep_command("cancel")
+
+    # Non-sleep commands
+    assert not is_sleep_command("Check git status and commit")
+    assert not is_sleep_command("Run security diagnostic")
+    assert not is_sleep_command("Analyze energy production in US")
+
+
+@pytest.mark.asyncio
+async def test_voice_sleep_command_bypasses_agent_turn():
+    events_captured = []
+    turn_handler_invoked = False
+    sleep_handler_invoked = False
+
+    async def mock_agent_turn(text: str):
+        nonlocal turn_handler_invoked
+        turn_handler_invoked = True
+        yield f"Result: {text}"
+
+    async def mock_sleep_handler():
+        nonlocal sleep_handler_invoked
+        sleep_handler_invoked = True
+
+    # STT returns sleep command
+    mock_stt = MockSTTProvider(default_transcript="Okay stop. Hijabay stop.")
+    coordinator = VoicePipelineCoordinator(turn_handler=mock_agent_turn, stt=mock_stt)
+    coordinator.set_sleep_handler(mock_sleep_handler)
+    coordinator.add_listener(lambda e: events_captured.append(e))
+
+    tone = create_pcm_frame(frequency=280.0, amplitude=0.7)
+    silence = create_silence_frame()
+
+    # User speaks
+    for _ in range(4):
+        await coordinator.push_audio_frame(tone)
+    for _ in range(12):
+        await coordinator.push_audio_frame(silence)
+
+    await asyncio.sleep(0.1)
+
+    # Sleep handler MUST be invoked
+    assert sleep_handler_invoked
+    # Turn handler (LLM) MUST NOT be invoked!
+    assert not turn_handler_invoked
+    event_types = [e["event"] for e in events_captured]
+    assert "voice_sleep" in event_types
+
+
+@pytest.mark.asyncio
+async def test_whisper_hallucination_ignored_by_coordinator():
+    turn_handler_invoked = False
+
+    async def mock_agent_turn(text: str):
+        nonlocal turn_handler_invoked
+        turn_handler_invoked = True
+        yield f"Result: {text}"
+
+    # STT returns hallucinated phantom silence
+    mock_stt = MockSTTProvider(default_transcript="Thank you.")
+    coordinator = VoicePipelineCoordinator(turn_handler=mock_agent_turn, stt=mock_stt)
+
+    tone = create_pcm_frame(frequency=280.0, amplitude=0.7)
+    silence = create_silence_frame()
+
+    for _ in range(4):
+        await coordinator.push_audio_frame(tone)
+    for _ in range(12):
+        await coordinator.push_audio_frame(silence)
+
+    await asyncio.sleep(0.1)
+
+    # Hallucination dropped before calling turn handler!
+    assert not turn_handler_invoked

@@ -63,6 +63,8 @@ async def main():
     def on_pipeline_event(evt):
         if evt.get("event") == "transcript":
             print(f"\nYou (Voice) ❯ {evt.get('text')}\nLumen ❯ ", end="", flush=True)
+        elif evt.get("event") == "voice_sleep":
+            print(f"\n💤 [Voice Sleep Command: '{evt.get('text')}']", flush=True)
         elif evt.get("event") == "barge_in":
             print(f"\n⚡ [Barge-In Detected: Playback preempted]\nYou ❯ ", end="", flush=True)
 

@@ -48,6 +48,9 @@ class WakeWordDaemon:
         self.idle_timeout_sec = idle_timeout_sec
         self.use_hardware_audio = use_hardware_audio
 
+        # Wire coordinator sleep handler into this daemon
+        self.coordinator.set_sleep_handler(self.transition_to_dormant)
+
         # State tracking
         self.state: WakeWordDaemonState = WakeWordDaemonState.STOPPED
         self.triggers_count: int = 0
@@ -84,6 +87,17 @@ class WakeWordDaemon:
                 listener(payload)
             except Exception:
                 pass
+
+    async def transition_to_dormant(self) -> None:
+        """Transitions daemon back to low-power dormant listening."""
+        if self.state != WakeWordDaemonState.ACTIVE_CONVERSATION:
+            return
+        logger.info("Transitioning to DORMANT_LISTENING mode.")
+        sleep_chime = self.chime.create_sleep_chime()
+        if self.use_hardware_audio:
+            self.chime.play(sleep_chime)
+        self.coordinator.reset()
+        self._transition_to(WakeWordDaemonState.DORMANT_LISTENING)
 
     def _transition_to(self, new_state: WakeWordDaemonState) -> None:
         old_state = self.state
@@ -219,13 +233,7 @@ class WakeWordDaemon:
 
                     if time_since_speech > self.idle_timeout_sec and not is_playing and not has_queued:
                         logger.info("Ambient session idle timeout reached. Returning to dormant mode.")
-                        # Play descending dismissal chime
-                        sleep_chime = self.chime.create_sleep_chime()
-                        if self.use_hardware_audio:
-                            self.chime.play(sleep_chime)
-
-                        self.coordinator.reset()
-                        self._transition_to(WakeWordDaemonState.DORMANT_LISTENING)
+                        await self.transition_to_dormant()
 
             except asyncio.CancelledError:
                 break

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import time
 from typing import AsyncGenerator, Callable, List, Optional, Any, Dict
 from src.voice.models import (
@@ -14,6 +15,9 @@ from src.voice.interruption import BargeInCoordinator
 from src.voice.chunker import SyntacticClauseChunker
 from src.voice.stt import STTProvider, MockSTTProvider
 from src.voice.tts import TTSProvider, MockNeuralTTS, AudioOutputPlayer
+from src.voice.filters import is_whisper_hallucination, is_sleep_command
+
+logger = logging.getLogger("lumen.voice.pipeline")
 
 
 class VoicePipelineCoordinator:
@@ -42,6 +46,7 @@ class VoicePipelineCoordinator:
         self.tts = tts or MockNeuralTTS()
         self.player = player or AudioOutputPlayer(echo_gate=self.echo_gate)
         self.turn_handler = turn_handler
+        self.sleep_handler: Optional[Callable[[], Any]] = None
 
         # Register audio output player preemption hook into BargeInCoordinator
         self.barge_in.register_cancellation_hook(self.player.clear_and_stop)
@@ -55,6 +60,10 @@ class VoicePipelineCoordinator:
 
         # Latency tracking
         self._vad_latencies: List[float] = []
+
+    def set_sleep_handler(self, handler: Callable[[], Any]) -> None:
+        """Sets a callback triggered when an immediate voice sleep command is detected."""
+        self.sleep_handler = handler
 
     @property
     def metrics(self) -> VoicePipelineMetrics:
@@ -112,6 +121,11 @@ class VoicePipelineCoordinator:
                 captured_frames = list(self._user_speech_frames)
                 self._user_speech_frames.clear()
 
+                # Cancel previous active turn task if still in flight (single-flight serialization)
+                if self._active_turn_task and not self._active_turn_task.done():
+                    self._turn_cancellation_event.set()
+                    self._active_turn_task.cancel()
+
                 # Launch turn execution as non-blocking background task
                 self._turn_cancellation_event.clear()
                 self._active_turn_task = asyncio.create_task(
@@ -127,10 +141,42 @@ class VoicePipelineCoordinator:
         """
         turn_start_time = time.perf_counter()
 
+        # Step 0: Discard very short or inaudible transient frame bursts (clicks, pops, room hiss)
+        if len(frames) < 3:
+            return
+
+        rms_values = [f.rms() for f in frames]
+        avg_rms = sum(rms_values) / len(rms_values) if rms_values else 0.0
+        # If not mock STT and average RMS is below ambient noise threshold (~ -42 dBFS), skip STT
+        if not isinstance(self.stt, MockSTTProvider) and avg_rms < 300.0:
+            return
+
         # Step A: STT Transcription
         transcript = await self.stt.transcribe_frames(frames)
         transcript = transcript.strip()
         if not transcript:
+            return
+
+        # Step B: Filter Whisper silence / noise hallucinations
+        if is_whisper_hallucination(transcript):
+            logger.debug(f"Filtered Whisper silence hallucination: '{transcript}'")
+            return
+
+        # Step C: Immediate Voice Stop / Sleep Direct Command
+        if is_sleep_command(transcript):
+            logger.info(f"Direct voice sleep command recognized: '{transcript}'")
+            self._emit_event("transcript", {"text": transcript, "role": "user"})
+            self._emit_event("voice_sleep", {"text": transcript})
+            self._turn_cancellation_event.set()
+            await self.player.clear_and_stop()
+            self.chunker.clear()
+            if self.sleep_handler:
+                try:
+                    res = self.sleep_handler()
+                    if asyncio.iscoroutine(res):
+                        await res
+                except Exception as e:
+                    logger.error(f"Error executing sleep handler: {e}")
             return
 
         self._emit_event("transcript", {"text": transcript, "role": "user"})
