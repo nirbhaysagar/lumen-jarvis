@@ -197,6 +197,27 @@ AGENT_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "morning_briefing",
+            "description": (
+                "Generates an autonomous morning executive intelligence briefing including real-time weather and forecast, "
+                "Sentinel host telemetry (CPU, RAM, Disk, Docker), top tech/world news headlines, pending memory review proposals, "
+                "and active tasks. Automatically writes a permanent note to vault/digests/briefing_YYYY-MM-DD.md and returns a spoken summary. "
+                "Use when the user greets with 'Good morning', asks for their morning briefing, daily overview, or executive summary."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "city": {
+                        "type": "string",
+                        "description": "Optional city name for weather forecast. Defaults to auto-detected location.",
+                    },
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "memory_lookup",
             "description": (
                 "Queries Lumen's bi-temporal memory engine (pgvector + Knowledge Graph) for past user decisions, "
@@ -449,6 +470,19 @@ class LumenAgentLoop:
                         tool_result_str = "\n".join(formatted)
                     else:
                         tool_result_str = f"No web search results found for query: '{search_query}'"
+
+                # Route B3: Autonomous Morning Executive Briefing
+                elif name == "morning_briefing":
+                    city = args.get("city")
+                    yield f"🌅 Compiling your Morning Executive Intelligence Briefing...\n\n"
+                    report = await self.session.briefing.generate_briefing(city=city)
+                    path = Path(report.vault_path)
+                    yield f"💾 Intelligence briefing archived at: [`{path.name}`](file://{path.resolve()})\n\n"
+                    tool_result_str = (
+                        f"Morning Briefing generated successfully.\n\n"
+                        f"Spoken summary to read to the user:\n{report.spoken_summary}\n\n"
+                        f"Full Obsidian Markdown dossier saved to: {report.vault_path}"
+                    )
 
                 # Route C: Computer Control (with Two-Man Rule gate)
                 elif name == "computer_control":

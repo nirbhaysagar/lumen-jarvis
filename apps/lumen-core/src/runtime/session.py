@@ -4,6 +4,7 @@ Glues together Memory Engine retrieval, LiteLLM routing, and True Concurrency Ta
 """
 from __future__ import annotations
 import os
+from pathlib import Path
 import re
 import sys
 import uuid
@@ -32,6 +33,7 @@ from ..analytics.engine import AnalystEngine
 from ..tools.data_commons import DataCommonsTool
 from ..vault.document_vault import DocumentVault
 from ..router.agent_loop import LumenAgentLoop
+from ..briefing.service import MorningBriefingService
 
 
 class ConversationSession:
@@ -53,6 +55,7 @@ class ConversationSession:
         analyst_engine: AnalystEngine | None = None,
         data_commons: DataCommonsTool | None = None,
         document_vault: DocumentVault | None = None,
+        morning_briefing_service: MorningBriefingService | None = None,
     ):
         self.conversation_id = conversation_id or f"conv_{uuid.uuid4().hex[:8]}"
         self.memory = memory_client or MemoryServiceClient()
@@ -91,6 +94,12 @@ class ConversationSession:
             research_agent=self.research,
             document_vault=self.document_vault,
             data_commons=self.data_commons,
+        )
+        self.briefing = morning_briefing_service or MorningBriefingService(
+            sentinel=self.sentinel,
+            memory_client=self.memory,
+            vault_sync=self.vault,
+            supervisor=self.supervisor,
         )
         self.agent_loop = LumenAgentLoop(session=self, router=self.router, max_steps=8, history_turn_limit=15)
         self.history: list[dict[str, str]] = []
@@ -660,6 +669,35 @@ class ConversationSession:
                 yield "🛡️ Sentinel Daemon has been stopped."
             else:
                 yield "Sentinel Daemon is not currently active."
+            return
+
+        if trimmed == "/briefing" or trimmed.startswith("/briefing "):
+            parts = trimmed.split(maxsplit=1)
+            target_city = parts[1].strip() if len(parts) > 1 else None
+            yield "🌅 Compiling your Morning Executive Intelligence Briefing...\n\n"
+            report = await self.briefing.generate_briefing(city=target_city)
+            yield f"{report.spoken_summary}\n\n"
+            yield f"💾 Full intelligence dossier archived at: [`{Path(report.vault_path).name}`](file://{report.vault_path})\n"
+            return
+
+        # Direct natural language morning greeting bypass
+        cleaned_lower = re.sub(r"[^\w\s]", "", trimmed.lower()).strip()
+        morning_greetings = {
+            "good morning",
+            "good morning lumen",
+            "good morning jarvis",
+            "morning briefing",
+            "give me my morning briefing",
+            "give me today briefing",
+            "today briefing",
+            "executive briefing",
+            "daily briefing",
+        }
+        if cleaned_lower in morning_greetings:
+            yield "🌅 Compiling your Morning Executive Intelligence Briefing...\n\n"
+            report = await self.briefing.generate_briefing()
+            yield f"{report.spoken_summary}\n\n"
+            yield f"💾 Full intelligence dossier archived at: [`{Path(report.vault_path).name}`](file://{report.vault_path})\n"
             return
 
         # 1. Announce any proactive Sentinel alerts

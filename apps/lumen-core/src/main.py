@@ -86,6 +86,7 @@ async def main():
             print(f"⚠️ Could not start Wake-Word Daemon: {e}")
 
     print("Commands:")
+    print("  • /briefing [city] - Autonomous Executive Morning Briefing (Weather, Sentinel, Headlines, Tasks)")
     print("  • /sentinel-status - View live Sentinel health matrix (Disk, RAM, Docker, Git)")
     print("  • /sentinel-check  - Run on-demand diagnostic patrol")
     print("  • /listen          - Hands-Free Ambient Listening (Say 'Hey Jarvis' to wake)")
