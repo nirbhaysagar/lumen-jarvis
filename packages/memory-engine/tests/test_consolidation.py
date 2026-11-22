@@ -11,12 +11,6 @@ from app.main import app
 from app.domain.models import Entity, Triple, ProposalStatus, ProposalTier
 
 
-@pytest_asyncio.fixture
-async def client():
-    async with app.router.lifespan_context(app):
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as c:
-            yield c
 
 
 @pytest.mark.asyncio

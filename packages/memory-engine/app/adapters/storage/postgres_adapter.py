@@ -129,7 +129,7 @@ class PostgresStorageAdapter(StoragePort):
                 """
                 INSERT INTO events (id, idempotency_key, source, conversation_id, payload, created_at, hash)
                 VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
-                ON CONFLICT (idempotency_key) DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key
+                ON CONFLICT (idempotency_key) DO NOTHING
                 RETURNING id;
                 """,
                 event.id,
@@ -140,6 +140,11 @@ class PostgresStorageAdapter(StoragePort):
                 event.created_at,
                 event.hash,
             )
+            if not row and event.idempotency_key:
+                row = await conn.fetchrow(
+                    "SELECT id FROM events WHERE idempotency_key = $1",
+                    event.idempotency_key,
+                )
             return row["id"]
 
     async def save_fact(self, fact: CanonicalFact, embedding: Sequence[float]) -> uuid.UUID:

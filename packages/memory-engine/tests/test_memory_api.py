@@ -9,13 +9,6 @@ from httpx import AsyncClient, ASGITransport
 from app.main import app
 
 
-@pytest_asyncio.fixture
-async def client():
-    """Test client fixture that triggers FastAPI lifespan (connecting to DB pool)."""
-    async with app.router.lifespan_context(app):
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as c:
-            yield c
 
 
 @pytest.mark.asyncio

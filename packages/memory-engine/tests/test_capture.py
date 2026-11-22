@@ -14,14 +14,6 @@ from app.main import app
 from app.core.config import settings
 
 
-@pytest_asyncio.fixture
-async def client():
-    """Test client fixture that triggers FastAPI lifespan."""
-    async with app.router.lifespan_context(app):
-        transport = ASGITransport(app=app)
-        headers = {"Authorization": f"Bearer {settings.LUMEN_MEMORY_TOKEN}"}
-        async with AsyncClient(transport=transport, base_url="http://test", headers=headers) as c:
-            yield c
 
 
 @pytest.mark.asyncio
