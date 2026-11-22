@@ -15,8 +15,8 @@ class WakeWordDetector:
     def __init__(
         self,
         model_name: str = "hey_jarvis",
-        threshold: float = 0.55,
-        refractory_sec: float = 2.0,
+        threshold: float = 0.70,
+        refractory_sec: float = 2.5,
         simulated: bool = False,
     ):
         self.model_name = model_name
@@ -25,6 +25,7 @@ class WakeWordDetector:
         self.simulated = simulated
 
         self._last_trigger_time: float = 0.0
+        self._cooldown_until: float = 0.0
         self._sample_buffer: np.ndarray = np.array([], dtype=np.int16)
         self._model = None
         self._simulated_trigger_flag: bool = False
@@ -74,6 +75,16 @@ class WakeWordDetector:
         """
         now = time.time()
 
+        # Cooldown guard: silence refractory period blocks all evaluation and purges buffers
+        if now < self._cooldown_until:
+            self._sample_buffer = np.array([], dtype=np.int16)
+            if self._model:
+                try:
+                    self._model.reset()
+                except Exception:
+                    pass
+            return False, self.model_name, 0.0
+
         # Simulated test mode
         if self.simulated or self._model is None:
             if self._simulated_trigger_flag and (now - self._last_trigger_time >= self.refractory_sec):
@@ -117,9 +128,17 @@ class WakeWordDetector:
         samples = np.frombuffer(pcm_bytes, dtype=np.int16)
         return self.process_samples(samples)
 
-    def arm_cooldown(self, cooldown_sec: float = 2.0) -> None:
+    def arm_cooldown(self, cooldown_sec: float = 2.5) -> None:
         """Enforces a refractory silence period during which wake triggers are blocked."""
-        self._last_trigger_time = time.time() + cooldown_sec
+        now = time.time()
+        self._cooldown_until = now + cooldown_sec
+        self._last_trigger_time = self._cooldown_until
+        self._sample_buffer = np.array([], dtype=np.int16)
+        if self._model:
+            try:
+                self._model.reset()
+            except Exception:
+                pass
 
     def reset(self) -> None:
         """Flushes sample buffer, state, and clears trigger flags."""

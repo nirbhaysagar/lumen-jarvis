@@ -88,7 +88,7 @@ class WakeWordDaemon:
             except Exception:
                 pass
 
-    async def transition_to_dormant(self, cooldown_sec: float = 2.0) -> None:
+    async def transition_to_dormant(self, cooldown_sec: float = 2.5) -> None:
         """Transitions daemon back to low-power dormant listening with acoustic refractory cooldown."""
         if self.state != WakeWordDaemonState.ACTIVE_CONVERSATION:
             return

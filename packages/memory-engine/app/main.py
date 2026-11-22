@@ -30,14 +30,8 @@ async def lifespan(app: FastAPI):
     app.state.db_pool = storage.pool
 
     # 2. Initialize Embedding Adapter
-    if settings.OPENAI_API_KEY:
-        app.state.embedding = OpenAIEmbeddingAdapter(
-            api_key=settings.OPENAI_API_KEY,
-            model=settings.EMBEDDING_MODEL,
-            dimension=settings.EMBEDDING_DIMENSION,
-        )
-    else:
-        # Try local Ollama nomic-embed-text (768-d), fallback to deterministic hash
+    if settings.PREFER_LOCAL_MODELS:
+        # Prioritize local Ollama nomic-embed-text (768-d), fallback to deterministic hash
         try:
             import httpx
             with httpx.Client(timeout=0.5) as client:
@@ -52,6 +46,14 @@ async def lifespan(app: FastAPI):
                     app.state.embedding = DeterministicHashEmbeddingAdapter(dimension=settings.EMBEDDING_DIMENSION)
         except Exception:
             app.state.embedding = DeterministicHashEmbeddingAdapter(dimension=settings.EMBEDDING_DIMENSION)
+    elif settings.OPENAI_API_KEY:
+        app.state.embedding = OpenAIEmbeddingAdapter(
+            api_key=settings.OPENAI_API_KEY,
+            model=settings.EMBEDDING_MODEL,
+            dimension=settings.EMBEDDING_DIMENSION,
+        )
+    else:
+        app.state.embedding = DeterministicHashEmbeddingAdapter(dimension=settings.EMBEDDING_DIMENSION)
 
     yield
 

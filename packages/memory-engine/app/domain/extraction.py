@@ -51,122 +51,186 @@ def _normalize_parsed(data: Any) -> dict[str, Any]:
     if not isinstance(data, dict):
         return {"entities": [], "memories": []}
 
-    entities = data.get("entities", [])
+    # Handle singular aliases: "memory" -> "memories", "entity" -> "entities"
+    if ("memories" not in data or not data["memories"]) and "memory" in data:
+        mem_val = data.pop("memory")
+        if isinstance(mem_val, list):
+            data["memories"] = mem_val
+        elif isinstance(mem_val, dict):
+            data["memories"] = [mem_val]
+    elif "memory" in data:
+        data.pop("memory", None)
+
+    if ("entities" not in data or not data["entities"]) and "entity" in data:
+        ent_val = data.pop("entity")
+        if isinstance(ent_val, list):
+            data["entities"] = ent_val
+        elif isinstance(ent_val, dict):
+            data["entities"] = [ent_val]
+    elif "entity" in data:
+        data.pop("entity", None)
+
+    # Hoist nested entities inside memories up to top-level entities if top-level is empty or missing
+    raw_entities = data.get("entities")
+    if not isinstance(raw_entities, list):
+        raw_entities = []
+
+    raw_memories = data.get("memories")
+    if not isinstance(raw_memories, list):
+        raw_memories = []
+
+    for m in raw_memories:
+        if isinstance(m, dict) and "entities" in m:
+            nested_ents = m.pop("entities", None)
+            if isinstance(nested_ents, list):
+                raw_entities.extend(nested_ents)
+
     cleaned_entities = []
-    if isinstance(entities, list):
-        for idx, e in enumerate(entities):
-            if not isinstance(e, dict):
-                continue
-            item = dict(e)
-            if "ref" not in item or not item["ref"]:
-                item["ref"] = f"e{idx+1}"
-            if "kind" not in item and "type" in item:
-                item["kind"] = item.pop("type")
-            kind_val = str(item.get("kind", "other")).lower()
-            item["kind"] = _KIND_MAP.get(kind_val, kind_val if kind_val in _ALLOWED_KINDS else "other")
-            if "name" in item:
-                item["name"] = str(item["name"])
-            if "aliases" in item and not isinstance(item["aliases"], list):
-                item["aliases"] = [str(item["aliases"])]
-            # Drop unknown keys
-            item = {k: v for k, v in item.items() if k in _ALLOWED_ENTITY_KEYS}
-            cleaned_entities.append(item)
-    data["entities"] = cleaned_entities
+    for idx, e in enumerate(raw_entities):
+        if not isinstance(e, dict):
+            continue
+        item = dict(e)
+        if "ref" not in item or not item["ref"]:
+            item["ref"] = f"e{idx+1}"
+        if "kind" not in item and "type" in item:
+            item["kind"] = item.pop("type")
+        kind_val = str(item.get("kind", "other")).lower()
+        item["kind"] = _KIND_MAP.get(kind_val, kind_val if kind_val in _ALLOWED_KINDS else "other")
+        if "name" in item:
+            item["name"] = str(item["name"])
+        else:
+            item["name"] = f"Entity_{idx+1}"
+        if "aliases" in item and not isinstance(item["aliases"], list):
+            item["aliases"] = [str(item["aliases"])]
+        # Drop unknown keys
+        item = {k: v for k, v in item.items() if k in _ALLOWED_ENTITY_KEYS}
+        cleaned_entities.append(item)
 
-    ent_by_name = {e["name"].lower(): e["ref"] for e in cleaned_entities if "name" in e and "ref" in e}
-    valid_refs = {e["ref"] for e in cleaned_entities if "ref" in e}
+    # Deduplicate entities by canonical name or ref
+    seen_refs = set()
+    deduped_entities = []
+    for e in cleaned_entities:
+        if e["ref"] not in seen_refs:
+            seen_refs.add(e["ref"])
+            deduped_entities.append(e)
+    data["entities"] = deduped_entities
 
-    memories = data.get("memories", [])
-    if isinstance(memories, list):
-        cleaned_memories = []
-        for idx, m in enumerate(memories):
-            if not isinstance(m, dict):
-                continue
-            item = dict(m)
-            if "ref" not in item or not item["ref"]:
-                item["ref"] = f"m{idx+1}"
-            if "asserted_by" not in item:
-                item["asserted_by"] = "user"
-            if "confidence" not in item:
-                item["confidence"] = 0.9
-            if "importance" not in item:
-                item["importance"] = 0.5
-            if "type" not in item:
-                item["type"] = "fact"
-            if "epistemic" not in item:
-                item["epistemic"] = "belief"
+    ent_by_name = {e["name"].lower(): e["ref"] for e in deduped_entities if "name" in e and "ref" in e}
+    valid_refs = {e["ref"] for e in deduped_entities if "ref" in e}
 
-            # Subject resolution: must match ^e[0-9]+$
-            if "subject" in item and item["subject"]:
-                sub_val = str(item["subject"]).strip()
-                if sub_val in valid_refs:
-                    item["subject"] = sub_val
-                elif sub_val.lower() in ent_by_name:
-                    item["subject"] = ent_by_name[sub_val.lower()]
-                else:
-                    new_ref = f"e{len(cleaned_entities) + 1}"
-                    new_ent = {
-                        "ref": new_ref,
-                        "name": sub_val.title() if sub_val.lower() != "user" else "User",
-                        "kind": "person" if sub_val.lower() == "user" else "concept",
-                    }
-                    cleaned_entities.append(new_ent)
-                    ent_by_name[sub_val.lower()] = new_ref
-                    valid_refs.add(new_ref)
-                    item["subject"] = new_ref
+    cleaned_memories = []
+    for idx, m in enumerate(raw_memories):
+        if not isinstance(m, dict):
+            continue
+        item = dict(m)
+        if "ref" not in item or not item["ref"]:
+            item["ref"] = f"m{idx+1}"
+        if "asserted_by" not in item:
+            item["asserted_by"] = "user"
+        if "confidence" not in item or not isinstance(item["confidence"], (int, float)):
+            item["confidence"] = 0.9
+        else:
+            item["confidence"] = max(0.0, min(1.0, float(item["confidence"])))
+        if "importance" not in item or not isinstance(item["importance"], (int, float)):
+            item["importance"] = 0.5
+        else:
+            item["importance"] = max(0.0, min(1.0, float(item["importance"])))
+        if "type" not in item or item["type"] not in ("fact", "decision", "goal", "assumption", "insight", "question", "action", "constraint", "event"):
+            item["type"] = "fact"
+        if "epistemic" not in item or item["epistemic"] not in ("fact", "belief", "inference", "decision"):
+            item["epistemic"] = "belief"
+        if "statement" not in item or not str(item["statement"]).strip():
+            item["statement"] = f"Fact asserted by {item.get('asserted_by', 'user')}"
+        else:
+            stmt = str(item["statement"]).strip()
+            if len(stmt) < 5:
+                stmt = f"{stmt} asserted"
+            item["statement"] = stmt[:300]
+
+        # Subject resolution: must match ^e[0-9]+$
+        if "subject" in item and item["subject"]:
+            sub_val = str(item["subject"]).strip()
+            if sub_val in valid_refs:
+                item["subject"] = sub_val
+            elif sub_val.lower() in ent_by_name:
+                item["subject"] = ent_by_name[sub_val.lower()]
             else:
-                item["subject"] = None
+                new_ref = f"e{len(data['entities']) + 1}"
+                new_ent = {
+                    "ref": new_ref,
+                    "name": sub_val.title() if sub_val.lower() != "user" else "User",
+                    "kind": "person" if sub_val.lower() == "user" else "concept",
+                }
+                data["entities"].append(new_ent)
+                ent_by_name[sub_val.lower()] = new_ref
+                valid_refs.add(new_ref)
+                item["subject"] = new_ref
+        else:
+            item["subject"] = None
 
-            # Object resolution: must match ^e[0-9]+$ or be null
-            if "object" in item and item["object"]:
-                obj_val = str(item["object"]).strip()
-                if obj_val in valid_refs:
-                    item["object"] = obj_val
-                elif obj_val.lower() in ent_by_name:
-                    item["object"] = ent_by_name[obj_val.lower()]
-                else:
-                    item["object_value"] = obj_val
-                    item["object"] = None
+        # Object resolution: must match ^e[0-9]+$ or be null
+        if "object" in item and item["object"]:
+            obj_val = str(item["object"]).strip()
+            if obj_val in valid_refs:
+                item["object"] = obj_val
+            elif obj_val.lower() in ent_by_name:
+                item["object"] = ent_by_name[obj_val.lower()]
             else:
+                item["object_value"] = obj_val
                 item["object"] = None
+        else:
+            item["object"] = None
 
-            # Predicate normalization: ^[a-z][a-z0-9_]{1,40}$
-            if "predicate" in item and item["predicate"]:
-                pred_raw = str(item["predicate"]).lower().strip()
-                pred_clean = re.sub(r"[^a-z0-9_]+", "_", pred_raw).strip("_")
-                if not re.match(r"^[a-z]", pred_clean):
-                    pred_clean = f"p_{pred_clean}"
-                item["predicate"] = pred_clean[:40]
+        # Predicate normalization: ^[a-z][a-z0-9_]{1,40}$
+        if "predicate" in item and item["predicate"]:
+            pred_raw = str(item["predicate"]).lower().strip()
+            pred_clean = re.sub(r"[^a-z0-9_]+", "_", pred_raw).strip("_")
+            if not re.match(r"^[a-z]", pred_clean):
+                pred_clean = f"p_{pred_clean}"
+            item["predicate"] = pred_clean[:40]
 
-            # Normalize evidence
-            ev = item.get("evidence", [])
-            if isinstance(ev, str):
-                item["evidence"] = [ev]
-            elif isinstance(ev, list):
-                item["evidence"] = [str(x) for x in ev if str(x).strip()]
-            else:
-                item["evidence"] = [item.get("statement", "")]
+        # Normalize evidence: 1 to 3 items, 3 to 400 chars each
+        ev = item.get("evidence", [])
+        clean_ev = []
+        if isinstance(ev, str) and len(ev.strip()) >= 3:
+            clean_ev.append(ev.strip()[:400])
+        elif isinstance(ev, list):
+            for x in ev:
+                xs = str(x).strip()
+                if len(xs) >= 3:
+                    clean_ev.append(xs[:400])
+        if not clean_ev:
+            fallback_ev = item.get("statement", "User asserted statement")
+            if len(fallback_ev) < 3:
+                fallback_ev = "User asserted statement"
+            clean_ev.append(fallback_ev[:400])
+        item["evidence"] = clean_ev[:3]
 
-            # Ensure cardinality
-            if "cardinality" not in item:
-                item["cardinality"] = "many"
-            elif item["cardinality"] not in ("one", "many"):
-                item["cardinality"] = "many"
+        # Ensure cardinality
+        if "cardinality" not in item:
+            item["cardinality"] = "many"
+        elif item["cardinality"] not in ("one", "many"):
+            item["cardinality"] = "many"
 
-            # Filter relations
-            if "relations" in item and isinstance(item["relations"], list):
-                clean_rels = []
-                for r in item["relations"]:
-                    if isinstance(r, dict) and "type" in r and "to" in r:
-                        clean_rels.append({k: r[k] for k in _ALLOWED_RELATION_KEYS if k in r})
-                item["relations"] = clean_rels
+        # Filter relations
+        if "relations" in item and isinstance(item["relations"], list):
+            clean_rels = []
+            for r in item["relations"]:
+                if isinstance(r, dict) and "type" in r and "to" in r:
+                    clean_rels.append({k: r[k] for k in _ALLOWED_RELATION_KEYS if k in r})
+            item["relations"] = clean_rels
 
-            # Drop unknown keys
-            item = {k: v for k, v in item.items() if k in _ALLOWED_MEMORY_KEYS}
-            cleaned_memories.append(item)
-        data["memories"] = cleaned_memories
+        # Drop unknown keys
+        item = {k: v for k, v in item.items() if k in _ALLOWED_MEMORY_KEYS}
+        cleaned_memories.append(item)
+    data["memories"] = cleaned_memories
 
-    return data
+    # Clean top-level keys to strictly adhere to additionalProperties: false
+    final_dict = {
+        "entities": data["entities"],
+        "memories": data["memories"],
+    }
+    return final_dict
 
 
 class MemoryExtractor:
@@ -175,13 +239,17 @@ class MemoryExtractor:
         model: Optional[str] = None,
         api_base: Optional[str] = None,
     ):
-        # Allow cloud API model by default if OPENAI_API_KEY or GROQ_API_KEY is present
+        # Model selection: defaults to local Ollama when PREFER_LOCAL_MODELS is true
         if model:
             self.model = model
+        elif os.getenv("LUMEN_EXTRACTION_MODEL"):
+            self.model = os.getenv("LUMEN_EXTRACTION_MODEL")
+        elif settings.PREFER_LOCAL_MODELS:
+            self.model = f"ollama/{settings.LUMEN_LLM_MODEL}"
         elif os.getenv("OPENAI_API_KEY"):
-            self.model = os.getenv("LUMEN_EXTRACTION_MODEL", "gpt-4o-mini")
+            self.model = "gpt-4o-mini"
         elif os.getenv("GROQ_API_KEY"):
-            self.model = os.getenv("LUMEN_EXTRACTION_MODEL", "groq/qwen/qwen3.8-27b")
+            self.model = "groq/qwen/qwen3.8-27b"
         else:
             self.model = f"ollama/{settings.LUMEN_LLM_MODEL}"
 

@@ -39,6 +39,7 @@ class Settings(BaseSettings):
         return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{db}"
 
     # Embeddings & Local Models
+    PREFER_LOCAL_MODELS: bool = Field(default_factory=lambda: os.getenv("PREFER_LOCAL_MODELS", "true").lower() in ("true", "1", "yes"))
     EMBEDDING_DIMENSION: int = 768
     EMBEDDING_MODEL: str = "nomic-embed-text"
     OPENAI_API_KEY: str | None = None
