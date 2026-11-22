@@ -447,7 +447,7 @@ class LumenAgentLoop:
                             f"👉 Say or type \"Yes, proceed\" or \"Approve\" to execute\n"
                             f"👉 Or say \"Cancel\" / \"No\" to abort (CLI: `/approve {req.approval_id}`)\n"
                         )
-                        tool_result_str = f"Command gated awaiting operator approval token ID: {req.approval_id}. User may say 'yes/proceed' or '/approve {req.approval_id}'."
+                        return
 
                 # Route D: Memory Lookup
                 elif name == "memory_lookup":
