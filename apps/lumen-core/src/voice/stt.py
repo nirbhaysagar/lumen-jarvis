@@ -133,6 +133,7 @@ class WhisperSTTProvider(STTProvider):
             "model": self.model,
             "response_format": "json",
             "temperature": "0.0",
+            "language": "en",
         }
 
         try:

@@ -121,16 +121,18 @@ class VoicePipelineCoordinator:
                 captured_frames = list(self._user_speech_frames)
                 self._user_speech_frames.clear()
 
-                # Cancel previous active turn task if still in flight (single-flight serialization)
-                if self._active_turn_task and not self._active_turn_task.done():
-                    self._turn_cancellation_event.set()
-                    self._active_turn_task.cancel()
+                # Only proceed if frames qualify as real speech (at least 4 frames ~ 120ms)
+                if len(captured_frames) >= 4:
+                    # Cancel previous active turn task if still in flight (single-flight serialization)
+                    if self._active_turn_task and not self._active_turn_task.done():
+                        self._turn_cancellation_event.set()
+                        self._active_turn_task.cancel()
 
-                # Launch turn execution as non-blocking background task
-                self._turn_cancellation_event.clear()
-                self._active_turn_task = asyncio.create_task(
-                    self._execute_turn(captured_frames)
-                )
+                    # Launch turn execution as non-blocking background task
+                    self._turn_cancellation_event.clear()
+                    self._active_turn_task = asyncio.create_task(
+                        self._execute_turn(captured_frames)
+                    )
 
         return result
 

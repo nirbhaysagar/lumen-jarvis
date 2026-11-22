@@ -24,6 +24,7 @@ from ..research.agent import DeepResearchAgent
 from ..voice.gateway import VoiceGateway
 from ..voice.pipeline import VoicePipelineCoordinator
 from ..voice.daemon import WakeWordDaemon
+from ..voice.vad import SileroVAD
 from ..voice.stt import WhisperSTTProvider, MockSTTProvider
 from ..voice.tts import NativeMacTTS, MockNeuralTTS
 from ..sentinel.daemon import SentinelDaemon
@@ -71,9 +72,12 @@ class ConversationSession:
         self.research = research_agent or DeepResearchAgent()
         stt_instance = WhisperSTTProvider() if (os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")) else MockSTTProvider()
         tts_instance = NativeMacTTS() if sys.platform == "darwin" else MockNeuralTTS()
+        # 26 frames * 30ms = ~780ms hangover provides natural conversational breathing pauses
+        vad_instance = SileroVAD(hangover_frames=26)
         self.voice = voice_gateway or VoiceGateway(
             coordinator=VoicePipelineCoordinator(
                 turn_handler=self.process_turn,
+                vad=vad_instance,
                 stt=stt_instance,
                 tts=tts_instance,
             )

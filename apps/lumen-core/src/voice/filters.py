@@ -25,12 +25,6 @@ WHISPER_HALLUCINATIONS: Set[str] = {
     "beams",
     "beams.",
     "beam",
-    "bye",
-    "bye.",
-    "goodbye",
-    "goodbye.",
-    "see you next time",
-    "see you next time.",
     "subscribe",
     "subscribe.",
     "like and subscribe",
@@ -121,17 +115,25 @@ def is_sleep_command(text: str) -> bool:
         "quit",
         "exit",
         "pause",
+        "bye",
+        "goodbye",
+        "bye jarvis",
+        "goodbye jarvis",
+        "bye lumen",
+        "goodbye lumen",
+        "good night",
+        "see you later",
     }
     if cleaned in stop_phrases:
         return True
 
     # Key phrase matching
-    if any(phrase in cleaned for phrase in ("go to sleep", "shut up", "stop listening", "be quiet")):
+    if any(phrase in cleaned for phrase in ("go to sleep", "shut up", "stop listening", "be quiet", "good night", "see you later")):
         return True
 
     # Short utterance (<= 4 words) containing stop or sleep
-    # e.g. "Okay stop. Hijabay stop.", "Hey Jarvis stop", "Lumen sleep"
-    if len(words) <= 4 and any(w in ("stop", "sleep", "cancel", "quiet") for w in words):
+    # e.g. "Okay stop. Hijabay stop.", "Hey Jarvis stop", "Lumen sleep", "Bye, Jarvis"
+    if len(words) <= 4 and any(w in ("stop", "sleep", "cancel", "quiet", "bye", "goodbye") for w in words):
         return True
 
     return False

@@ -364,6 +364,9 @@ def test_whisper_hallucination_and_sleep_filters():
     assert is_sleep_command("Hey Jarvis, sleep")
     assert is_sleep_command("please stop")
     assert is_sleep_command("cancel")
+    assert is_sleep_command("Bye, Jarvis.")
+    assert is_sleep_command("goodbye")
+    assert is_sleep_command("good night")
 
     # Non-sleep commands
     assert not is_sleep_command("Check git status and commit")
