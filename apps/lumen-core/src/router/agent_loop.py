@@ -125,11 +125,38 @@ AGENT_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "web_search",
+            "description": (
+                "Performs a fast, lightweight live internet search (using DuckDuckGo) for real-time facts, current events, sports scores, "
+                "weather, news, definitions, or quick lookups. Returns concise web snippets and URLs in seconds. "
+                "PRIMARY tool for all simple internet queries, live scores, facts, and quick questions. "
+                "Do NOT use deep_research unless the user explicitly requests an exhaustive multi-source investigation or Obsidian intelligence dossier."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The specific search query to look up on the web (e.g. 'India vs New Zealand test match day 4 score').",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of search results to retrieve (default: 5).",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "deep_research",
             "description": (
-                "Conducts an in-depth autonomous multi-source web investigation across DuckDuckGo, Hacker News, Reddit, and arXiv. "
-                "Extracts quotes and citations, and compiles an Obsidian intelligence dossier. Invoke for investigative queries, "
-                "complex non-visual research topics, or background fact-finding. Do NOT use if a chart, plot, or graph is requested."
+                "Conducts an in-depth autonomous multi-source academic and investigative research across DuckDuckGo, Hacker News, Reddit, and arXiv. "
+                "Extracts formal quotes, citations, and compiles an archival intelligence dossier into Obsidian (vault/research/). "
+                "Use ONLY when the user explicitly asks for deep research, an investigation, or a dossier. "
+                "For simple web queries, sports scores, news, live facts, weather, or quick lookups, use web_search instead."
             ),
             "parameters": {
                 "type": "object",
@@ -391,6 +418,22 @@ class LumenAgentLoop:
                     findings_list = [c.claim for c in dossier.claims[:5]] if dossier.claims else dossier.key_findings
                     top_findings = "\n".join([f"• {f}" for f in findings_list])
                     tool_result_str = f"Research completed. Key findings:\n{top_findings}\nDossier saved at {path}"
+
+                # Route B2: Fast Web Search
+                elif name == "web_search":
+                    search_query = args.get("query", user_input)
+                    max_res = min(int(args.get("max_results", 5)), 8)
+                    yield f"🌐 Searching the web for: '{search_query}'...\n"
+                    from ..research.providers.duckduckgo import DuckDuckGoProvider
+                    provider = DuckDuckGoProvider()
+                    results = await provider.search(query=search_query, max_results=max_res)
+                    if results:
+                        formatted = []
+                        for idx, r in enumerate(results, 1):
+                            formatted.append(f"{idx}. {r.title}: {r.snippet} (Source: {r.url})")
+                        tool_result_str = "\n".join(formatted)
+                    else:
+                        tool_result_str = f"No web search results found for query: '{search_query}'"
 
                 # Route C: Computer Control (with Two-Man Rule gate)
                 elif name == "computer_control":
