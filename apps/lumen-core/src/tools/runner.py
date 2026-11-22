@@ -125,6 +125,16 @@ class SandboxedRunner:
         effective_timeout = timeout or self.default_timeout
         start_time = time.perf_counter()
 
+        # Sanitize git commands specifying non-existent or placeholder -C paths
+        if "git " in command and "-C " in command:
+            import re
+            m = re.search(r"git\s+-C\s+(\S+)\s*", command)
+            if m:
+                path_str = m.group(1).strip("\"'")
+                expanded = Path(os.path.expanduser(path_str))
+                if not expanded.exists() or "your_repo" in path_str or "<" in path_str:
+                    command = re.sub(r"git\s+-C\s+\S+\s*", "git ", command).strip()
+
         # 1. Evaluate safety via AST Gatekeeper
         if not bypass_gatekeeper:
             evaluation = self.gatekeeper.evaluate(command)

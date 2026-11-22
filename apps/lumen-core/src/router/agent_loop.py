@@ -151,7 +151,7 @@ AGENT_TOOLS = [
                 "Executes operating system shell commands (e.g. file management, checking processes, git commands, system diagnostics). "
                 "Read-only commands execute directly; non-read-only mutating commands require human confirmation (Two-Man Rule). "
                 "Commands execute directly in the active project workspace root. "
-                "NEVER invent or pass fictional placeholder paths like '~/Documents/your_repo' or '<repo>'—run git commands directly in the current directory (e.g. 'git log -n 5 --oneline', 'git status', 'ls -la'). "
+                "Always run repository and system commands directly in the current directory (e.g. 'git log -n 5 --oneline', 'git status', 'ls -la') without extra path flags. "
                 "DO NOT use for plotting, charting, or data analysis (use analyst_engine instead)."
             ),
             "parameters": {
@@ -395,6 +395,15 @@ class LumenAgentLoop:
                 # Route C: Computer Control (with Two-Man Rule gate)
                 elif name == "computer_control":
                     command = args.get("command", "").strip()
+                    # Auto-sanitize git commands with non-existent or placeholder -C paths
+                    if "git " in command and "-C " in command:
+                        m = re.search(r"git\s+-C\s+(\S+)\s*", command)
+                        if m:
+                            path_str = m.group(1).strip("\"'")
+                            expanded = Path(os.path.expanduser(path_str))
+                            if not expanded.exists() or "your_repo" in path_str or "<" in path_str:
+                                command = re.sub(r"git\s+-C\s+\S+\s*", "git ", command).strip()
+
                     cmd_lower = command.lower()
                     if not command:
                         tool_result_str = "Error: empty command."
