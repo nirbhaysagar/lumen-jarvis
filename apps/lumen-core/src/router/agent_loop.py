@@ -127,10 +127,10 @@ AGENT_TOOLS = [
         "function": {
             "name": "web_search",
             "description": (
-                "Performs a fast, lightweight live internet search (using DuckDuckGo) for real-time facts, current events, sports scores, "
-                "weather, news, definitions, or quick lookups. Returns concise web snippets and URLs in seconds. "
-                "PRIMARY tool for all simple internet queries, live scores, facts, and quick questions. "
-                "Do NOT use deep_research unless the user explicitly requests an exhaustive multi-source investigation or Obsidian intelligence dossier."
+                "PRIMARY and DEFAULT tool for all internet search queries, web lookups, checking websites, live facts, current events, "
+                "sports scores, news, weather, or quick information retrieval. Completely free, open-source, and fast (<2 seconds). "
+                "Invoke this tool whenever the user asks to check online, search the web, check an internet site, or look up any fact. "
+                "Use this tool freely as much as needed for all light and standard search requests."
             ),
             "parameters": {
                 "type": "object",
@@ -153,10 +153,11 @@ AGENT_TOOLS = [
         "function": {
             "name": "deep_research",
             "description": (
-                "Conducts an in-depth autonomous multi-source academic and investigative research across DuckDuckGo, Hacker News, Reddit, and arXiv. "
-                "Extracts formal quotes, citations, and compiles an archival intelligence dossier into Obsidian (vault/research/). "
-                "Use ONLY when the user explicitly asks for deep research, an investigation, or a dossier. "
-                "For simple web queries, sports scores, news, live facts, weather, or quick lookups, use web_search instead."
+                "STRICT RESTRICTION: DO NOT INVOKE this tool UNLESS the user explicitly and verbatim says 'deep research', 'create a dossier', or 'in-depth investigation'. "
+                "For ALL other searches, web lookups, internet queries, checking websites, sports scores, news, or general questions, ALWAYS invoke 'web_search'. "
+                "This tool runs an exhaustive multi-source web investigation across DuckDuckGo, Reddit, Hacker News, and arXiv, "
+                "extracts quotes/citations, and compiles a permanent archival intelligence dossier in Obsidian (vault/research/). "
+                "NEVER call this tool automatically for simple, general, or conversational research."
             ),
             "parameters": {
                 "type": "object",
@@ -411,13 +412,27 @@ class LumenAgentLoop:
                 # Route B: Deep Research
                 elif name == "deep_research":
                     topic = args.get("topic", user_input)
-                    yield f"👁️ Conducting deep web research on: '{topic}'...\n"
-                    dossier = await self.session.research.run_research(topic)
-                    path = self.session.vault.export_research_dossier(dossier)
-                    yield f"💾 Research dossier compiled at: [`{path.name}`](file://{path.resolve()})\n"
-                    findings_list = [c.claim for c in dossier.claims[:5]] if dossier.claims else dossier.key_findings
-                    top_findings = "\n".join([f"• {f}" for f in findings_list])
-                    tool_result_str = f"Research completed. Key findings:\n{top_findings}\nDossier saved at {path}"
+                    user_lower = user_input.lower()
+                    explicit_deep_terms = ("deep research", "dossier", "deep investigation", "in-depth research", "in-depth investigation")
+                    if not any(term in user_lower for term in explicit_deep_terms):
+                        # User directive: don't use deep research until user explicitly says so!
+                        yield f"🌐 Performing fast open-source web search for: '{topic}'...\n"
+                        from ..research.providers.duckduckgo import DuckDuckGoProvider
+                        provider = DuckDuckGoProvider()
+                        results = await provider.search(query=topic, max_results=5)
+                        if results:
+                            formatted = [f"{idx}. {r.title}: {r.snippet} (Source: {r.url})" for idx, r in enumerate(results, 1)]
+                            tool_result_str = "\n".join(formatted)
+                        else:
+                            tool_result_str = f"No web search results found for query: '{topic}'"
+                    else:
+                        yield f"👁️ Conducting deep web research on: '{topic}'...\n"
+                        dossier = await self.session.research.run_research(topic)
+                        path = self.session.vault.export_research_dossier(dossier)
+                        yield f"💾 Research dossier compiled at: [`{path.name}`](file://{path.resolve()})\n"
+                        findings_list = [c.claim for c in dossier.claims[:5]] if dossier.claims else dossier.key_findings
+                        top_findings = "\n".join([f"• {f}" for f in findings_list])
+                        tool_result_str = f"Research completed. Key findings:\n{top_findings}\nDossier saved at {path}"
 
                 # Route B2: Fast Web Search
                 elif name == "web_search":
