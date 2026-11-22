@@ -94,8 +94,12 @@ class NativeMacTTS(TTSProvider):
         return f"NativeMacTTS({self.voice})"
 
     async def synthesize(self, text: str) -> List[AudioFrame]:
-        clean_text = text.strip()
-        if not clean_text:
+        import re
+        # Strip non-ASCII emojis, symbols, and markdown punctuation for clean vocal speech
+        clean_text = re.sub(r"[\*`#_~\[\]\(\)]", " ", text)
+        clean_text = re.sub(r"[^\x00-\x7F]+", " ", clean_text)
+        clean_text = re.sub(r"\s+", " ", clean_text).strip()
+        if not clean_text or len(clean_text) < 2:
             return []
 
         import sys, tempfile, os, wave

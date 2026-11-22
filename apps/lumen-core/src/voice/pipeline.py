@@ -66,6 +66,16 @@ class VoicePipelineCoordinator:
         self.sleep_handler = handler
 
     @property
+    def is_busy(self) -> bool:
+        """
+        True if the coordinator is actively executing a turn (LLM / deep_research / tools)
+        or actively playing/buffering audio frames. Prevents idle watchdog sleep while working.
+        """
+        turn_active = self._active_turn_task is not None and not self._active_turn_task.done()
+        playing = self.player.is_playing or self.player.queued_frames_count > 0
+        return turn_active or playing
+
+    @property
     def metrics(self) -> VoicePipelineMetrics:
         if self._vad_latencies:
             self._metrics.average_vad_latency_ms = sum(self._vad_latencies) / len(self._vad_latencies)

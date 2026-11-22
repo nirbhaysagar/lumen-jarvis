@@ -368,10 +368,14 @@ def test_whisper_hallucination_and_sleep_filters():
     assert is_sleep_command("goodbye")
     assert is_sleep_command("good night")
 
-    # Non-sleep commands
+    # Non-sleep commands & questions
     assert not is_sleep_command("Check git status and commit")
     assert not is_sleep_command("Run security diagnostic")
     assert not is_sleep_command("Analyze energy production in US")
+    assert not is_sleep_command("Are you sleep?")
+    assert not is_sleep_command("Are you asleep?")
+    assert not is_sleep_command("Can you sleep?")
+    assert not is_sleep_command("Why did you sleep?")
 
 
 @pytest.mark.asyncio

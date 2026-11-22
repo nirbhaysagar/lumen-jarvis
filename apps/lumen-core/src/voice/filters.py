@@ -97,7 +97,31 @@ def is_sleep_command(text: str) -> bool:
     if not words:
         return False
 
-    # Standalone stop/sleep commands
+    # 1. Reject questions (e.g. "Are you sleep?", "Did you sleep?", "Why sleep?")
+    if raw_lower.endswith("?"):
+        return False
+
+    question_prefixes = (
+        "are you",
+        "are we",
+        "is it",
+        "did you",
+        "do you",
+        "can you",
+        "could you",
+        "would you",
+        "will you",
+        "why",
+        "how",
+        "what",
+        "where",
+        "who",
+        "which",
+    )
+    if any(cleaned.startswith(qp) for qp in question_prefixes):
+        return False
+
+    # 2. Standalone stop/sleep commands
     stop_phrases = {
         "stop",
         "okay stop",
@@ -127,13 +151,17 @@ def is_sleep_command(text: str) -> bool:
     if cleaned in stop_phrases:
         return True
 
-    # Key phrase matching
+    # 3. Key phrase matching
     if any(phrase in cleaned for phrase in ("go to sleep", "shut up", "stop listening", "be quiet", "good night", "see you later")):
         return True
 
-    # Short utterance (<= 4 words) containing stop or sleep
+    # 4. Short utterance (<= 4 words) containing imperative stop or sleep
     # e.g. "Okay stop. Hijabay stop.", "Hey Jarvis stop", "Lumen sleep", "Bye, Jarvis"
-    if len(words) <= 4 and any(w in ("stop", "sleep", "cancel", "quiet", "bye", "goodbye") for w in words):
+    imperative_triggers = ("stop", "sleep", "cancel", "quiet", "bye", "goodbye")
+    if len(words) <= 4 and any(w in imperative_triggers for w in words):
+        # Exclude questions starting with pronouns/question markers
+        if words[0] in ("you", "are", "do", "did", "can", "why", "how", "what", "where"):
+            return False
         return True
 
     return False

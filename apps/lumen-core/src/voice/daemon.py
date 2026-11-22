@@ -237,12 +237,13 @@ class WakeWordDaemon:
 
                         remainder_pcm = combined[idx:]
 
+                    # Active turn, tool execution (e.g. deep_research), or playback refreshes session watchdog
+                    if self.coordinator.is_busy:
+                        self.last_speech_time = now
+
                     # Watchdog Check: Return to dormant mode after idle timeout
                     time_since_speech = now - self.last_speech_time
-                    is_playing = self.coordinator.player.is_playing
-                    has_queued = self.coordinator.player.queued_frames_count > 0
-
-                    if time_since_speech > self.idle_timeout_sec and not is_playing and not has_queued:
+                    if time_since_speech > self.idle_timeout_sec and not self.coordinator.is_busy:
                         logger.info("Ambient session idle timeout reached. Returning to dormant mode.")
                         await self.transition_to_dormant()
 
