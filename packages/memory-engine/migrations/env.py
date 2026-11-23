@@ -33,7 +33,11 @@ def get_url() -> str:
 
     is_test = os.getenv("LUMEN_ENV") == "test"
     db_name = "lumen_memory_test" if is_test else "lumen_memory"
-    return f"postgresql://lumen:lumen_secure_pass@localhost:5432/{db_name}"
+    pg_user = os.getenv("POSTGRES_USER", "lumen")
+    pg_pass = os.getenv("POSTGRES_PASSWORD", "")
+    pg_host = os.getenv("POSTGRES_HOST", "localhost")
+    pg_port = os.getenv("POSTGRES_PORT", "5432")
+    return f"postgresql://{pg_user}:{pg_pass}@{pg_host}:{pg_port}/{db_name}"
 
 
 def run_migrations_offline() -> None:

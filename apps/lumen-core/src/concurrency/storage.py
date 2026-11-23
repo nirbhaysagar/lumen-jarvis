@@ -47,9 +47,14 @@ class InMemoryCheckpointStorage:
 
 class PostgresCheckpointStorage:
     def __init__(self, dsn: str | None = None) -> None:
+        user = os.getenv("POSTGRES_USER", "lumen")
+        pwd = os.getenv("POSTGRES_PASSWORD", "")
+        host = os.getenv("POSTGRES_HOST", "localhost")
+        port = os.getenv("POSTGRES_PORT", "5432")
+        db = os.getenv("POSTGRES_DB", "lumen_memory")
         self.dsn = dsn or os.getenv(
             "POSTGRES_DSN",
-            "postgresql://lumen:lumen_secure_pass@localhost:5432/lumen_memory",
+            os.getenv("DATABASE_URL") or f"postgresql://{user}:{pwd}@{host}:{port}/{db}",
         )
         self.pool: Any = None
 

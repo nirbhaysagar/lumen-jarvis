@@ -90,7 +90,8 @@ async def test_cooperative_cancellation():
 @pytest.mark.asyncio
 async def test_postgres_checkpoint_persistence():
     """Verifies that task checkpoints persist into PostgreSQL task_checkpoints table."""
-    dsn = "postgresql://lumen:lumen_secure_pass@localhost:5432/lumen_memory"
+    pg_pass = os.getenv("POSTGRES_PASSWORD", "lumen_test_pass")
+    dsn = os.getenv("LUMEN_DATABASE_URL") or os.getenv("DATABASE_URL") or f"postgresql://lumen:{pg_pass}@localhost:5432/lumen_memory_test"
     storage = PostgresCheckpointStorage(dsn=dsn)
     await storage.init()
 

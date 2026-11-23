@@ -23,6 +23,11 @@ from app.api.v1.recall import router as recall_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 0. Enforce mandatory token outside test environment
+    if settings.LUMEN_ENV != "test":
+        if not settings.LUMEN_MEMORY_TOKEN or len(settings.LUMEN_MEMORY_TOKEN) < 32:
+            raise RuntimeError("LUMEN_MEMORY_TOKEN must be set (>=32 chars)")
+
     # 1. Initialize Storage Adapter (Postgres + pgvector)
     storage = PostgresStorageAdapter(dsn=settings.database_url)
     await storage.connect()

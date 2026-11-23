@@ -16,6 +16,8 @@ def isolate_vault(tmp_path, monkeypatch):
     monkeypatch.setenv("LUMEN_VAULT_DIR", str(temp_vault))
     monkeypatch.setenv("LUMEN_ENV", "test")
     monkeypatch.setenv("POSTGRES_DB", "lumen_memory_test")
-    monkeypatch.setenv("LUMEN_DATABASE_URL", "postgresql://lumen:lumen_secure_pass@localhost:5432/lumen_memory_test")
-    monkeypatch.setenv("DATABASE_URL", "postgresql://lumen:lumen_secure_pass@localhost:5432/lumen_memory_test")
+    pg_pass = os.getenv("POSTGRES_PASSWORD", "lumen_test_pass")
+    monkeypatch.setenv("POSTGRES_PASSWORD", pg_pass)
+    monkeypatch.setenv("LUMEN_DATABASE_URL", f"postgresql://lumen:{pg_pass}@localhost:5432/lumen_memory_test")
+    monkeypatch.setenv("DATABASE_URL", f"postgresql://lumen:{pg_pass}@localhost:5432/lumen_memory_test")
     yield temp_vault

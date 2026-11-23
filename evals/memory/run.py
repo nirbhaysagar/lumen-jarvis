@@ -12,29 +12,48 @@ import os
 from pathlib import Path
 import sys
 from typing import Any
+import secrets
+from dotenv import load_dotenv
 import asyncpg
 import yaml
 import httpx
 from httpx import ASGITransport
 
+load_dotenv()
+
+_EVAL_TOKEN = os.getenv("LUMEN_MEMORY_TOKEN") or secrets.token_urlsafe(32)
+_EVAL_PG_PASS = os.getenv("POSTGRES_PASSWORD", "")
+_EVAL_DB_URL = (
+    os.getenv("LUMEN_DATABASE_URL")
+    or os.getenv("DATABASE_URL")
+    or f"postgresql://lumen:{_EVAL_PG_PASS}@localhost:5432/lumen_memory_test"
+)
+
 # Force test database isolation before importing app
 os.environ["LUMEN_ENV"] = "test"
 os.environ["POSTGRES_DB"] = "lumen_memory_test"
-os.environ["LUMEN_DATABASE_URL"] = "postgresql://lumen:lumen_secure_pass@localhost:5432/lumen_memory_test"
-os.environ["DATABASE_URL"] = "postgresql://lumen:lumen_secure_pass@localhost:5432/lumen_memory_test"
-os.environ["LUMEN_MEMORY_TOKEN"] = "test-token-secret"
+os.environ["POSTGRES_PASSWORD"] = _EVAL_PG_PASS
+os.environ["LUMEN_DATABASE_URL"] = _EVAL_DB_URL
+os.environ["DATABASE_URL"] = _EVAL_DB_URL
+os.environ["LUMEN_MEMORY_TOKEN"] = _EVAL_TOKEN
 
 # Add packages/memory-engine to sys.path
 engine_path = Path(__file__).resolve().parent.parent.parent / "packages" / "memory-engine"
 if str(engine_path) not in sys.path:
     sys.path.insert(0, str(engine_path))
 
+from app.core.config import settings
 from app.main import app
+
+settings.POSTGRES_DB = "lumen_memory_test"
+settings.POSTGRES_PASSWORD = _EVAL_PG_PASS
+settings.LUMEN_ENV = "test"
+settings.LUMEN_MEMORY_TOKEN = _EVAL_TOKEN
 
 EVAL_CLOCK = datetime(2026, 11, 21, 10, 0, 0, tzinfo=timezone(timedelta(hours=5, minutes=30)))
 
-TEST_DB_URL = "postgresql://lumen:lumen_secure_pass@localhost:5432/lumen_memory_test"
-MEMORY_TOKEN = "test-token-secret"
+TEST_DB_URL = _EVAL_DB_URL
+MEMORY_TOKEN = _EVAL_TOKEN
 
 
 def parse_relative_time(rel_str: str | None, base_time: datetime = EVAL_CLOCK) -> datetime:

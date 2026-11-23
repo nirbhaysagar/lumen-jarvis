@@ -9,6 +9,7 @@ Verifies:
 import uuid
 import pytest
 from httpx import AsyncClient, ASGITransport
+from app.core.config import settings
 from app.main import app
 
 
@@ -17,7 +18,7 @@ async def test_end_to_end_capture_extract_and_recall():
     async with app.router.lifespan_context(app):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            headers = {"Authorization": "Bearer test-token-secret"}
+            headers = {"Authorization": f"Bearer {settings.LUMEN_MEMORY_TOKEN}"}
 
             # 1. Capture raw event
             raw_text = "Nirbhay decided to use PostgreSQL 17 as the primary database for Lumen."

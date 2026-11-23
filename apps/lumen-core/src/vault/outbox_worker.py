@@ -34,7 +34,7 @@ class OutboxWorker:
         self.postgres_dsn = (
             postgres_dsn
             or os.getenv("DATABASE_URL")
-            or f"postgresql://{os.getenv('POSTGRES_USER', 'lumen')}:{os.getenv('POSTGRES_PASSWORD', 'lumen_secure_pass')}@{os.getenv('POSTGRES_HOST', 'localhost')}:{os.getenv('POSTGRES_PORT', '5432')}/{os.getenv('POSTGRES_DB', 'lumen_memory')}"
+            or f"postgresql://{os.getenv('POSTGRES_USER', 'lumen')}:{os.getenv('POSTGRES_PASSWORD', '')}@{os.getenv('POSTGRES_HOST', 'localhost')}:{os.getenv('POSTGRES_PORT', '5432')}/{os.getenv('POSTGRES_DB', 'lumen_memory')}"
         )
         self.fallback_poll_interval = fallback_poll_interval
 

@@ -4,25 +4,34 @@ Guarantees strict isolation: all tests run against lumen_memory_test
 and use isolated temporary vaults.
 """
 import os
+import secrets
 from pathlib import Path
+from dotenv import load_dotenv
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 
+load_dotenv()
+
+_TEST_TOKEN = secrets.token_urlsafe(32)
+_TEST_PG_PASS = os.getenv("POSTGRES_PASSWORD", "")
+
 # Force test environment before importing application modules
 os.environ["LUMEN_ENV"] = "test"
 os.environ["POSTGRES_DB"] = "lumen_memory_test"
-os.environ["LUMEN_DATABASE_URL"] = "postgresql://lumen:lumen_secure_pass@localhost:5432/lumen_memory_test"
-os.environ["DATABASE_URL"] = "postgresql://lumen:lumen_secure_pass@localhost:5432/lumen_memory_test"
-os.environ["LUMEN_MEMORY_TOKEN"] = "test-token-secret"
+os.environ["POSTGRES_PASSWORD"] = _TEST_PG_PASS
+os.environ["LUMEN_DATABASE_URL"] = f"postgresql://lumen:{_TEST_PG_PASS}@localhost:5432/lumen_memory_test"
+os.environ["DATABASE_URL"] = f"postgresql://lumen:{_TEST_PG_PASS}@localhost:5432/lumen_memory_test"
+os.environ["LUMEN_MEMORY_TOKEN"] = _TEST_TOKEN
 
 from app.core.config import settings
 from app.main import app
 
-# Verify settings are pointed to test database
+# Verify settings are pointed to test database and use dynamic token
 settings.POSTGRES_DB = "lumen_memory_test"
+settings.POSTGRES_PASSWORD = _TEST_PG_PASS
 settings.LUMEN_ENV = "test"
-settings.LUMEN_MEMORY_TOKEN = "test-token-secret"
+settings.LUMEN_MEMORY_TOKEN = _TEST_TOKEN
 
 
 @pytest.fixture(autouse=True)
@@ -40,9 +49,7 @@ def isolate_vault(tmp_path, monkeypatch):
 async def clean_test_db():
     """Ensure a pristine test database before each test run."""
     import asyncpg
-    conn = await asyncpg.connect(
-        "postgresql://lumen:lumen_secure_pass@localhost:5432/lumen_memory_test"
-    )
+    conn = await asyncpg.connect(settings.database_url)
     try:
         await conn.execute(
             """

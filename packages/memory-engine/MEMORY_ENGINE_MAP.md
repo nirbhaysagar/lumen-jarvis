@@ -405,5 +405,5 @@ PYTHONPATH=packages/memory-engine ./.venv/bin/pytest packages/memory-engine/test
 PYTHONPATH=apps/lumen-core ./.venv/bin/pytest apps/lumen-core/tests/test_morning_briefing.py apps/lumen-core/tests/test_session.py apps/lumen-core/tests/test_voice_pipeline.py apps/lumen-core/tests/test_wake_word_daemon.py -v
 
 # 4. Check Transactional Outbox Sync Status
-curl -s -H "Authorization: Bearer test-token-secret" http://localhost:8000/api/v1/outbox/stats
+curl -s -H "Authorization: Bearer $LUMEN_MEMORY_TOKEN" http://localhost:8000/api/v1/outbox/stats
 ```
