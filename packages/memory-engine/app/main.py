@@ -8,17 +8,17 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse, HTMLResponse
 
 from app.core.config import settings
-from app.adapters.storage.postgres_adapter import PostgresStorageAdapter
+from app.adapters.storage.pg_pool import PostgresPoolManager
 from app.adapters.embeddings.embedding_adapter import (
     DeterministicHashEmbeddingAdapter,
     OllamaEmbeddingAdapter,
 )
 from app.api.middleware.correlation import CorrelationMiddleware, get_current_trace_id
 from app.api.middleware.auth import AuthMiddleware
-from app.api.v1.endpoints import router as v1_router
 from app.api.v1.capture import router as capture_router
 from app.api.v1.extract import router as extract_router
 from app.api.v1.recall import router as recall_router
+from app.api.v1.outbox import router as outbox_router
 
 
 @asynccontextmanager
@@ -29,7 +29,7 @@ async def lifespan(app: FastAPI):
             raise RuntimeError("LUMEN_MEMORY_TOKEN must be set (>=32 chars)")
 
     # 1. Initialize Storage Adapter (Postgres + pgvector)
-    storage = PostgresStorageAdapter(dsn=settings.database_url)
+    storage = PostgresPoolManager(dsn=settings.database_url)
     await storage.connect()
     app.state.storage = storage
     app.state.db_pool = storage.pool
@@ -79,9 +79,18 @@ async def lifespan(app: FastAPI):
                 f"Memory engine requires local Ollama running with model '{settings.EMBEDDING_MODEL}'."
             )
 
+    # 3. Optional Background Jobs Worker
+    worker = None
+    if os.getenv("LUMEN_WORKERS") == "1":
+        from app.workers.jobs_worker import JobsWorker
+        worker = JobsWorker(pool=storage.pool, embedding_adapter=getattr(app.state, "embedding", None))
+        await worker.start()
+
     yield
 
     # Teardown
+    if worker:
+        await worker.stop()
     await storage.disconnect()
 
 
@@ -100,7 +109,16 @@ app.add_middleware(AuthMiddleware)
 app.include_router(capture_router)
 app.include_router(extract_router)
 app.include_router(recall_router)
-app.include_router(v1_router)
+app.include_router(outbox_router)
+
+# Mount legacy router only if explicitly enabled
+if os.getenv("LUMEN_LEGACY_API") == "1":
+    try:
+        from app.legacy.endpoints import router as legacy_router
+        app.include_router(legacy_router)
+    except Exception as e:
+        import logging
+        logging.getLogger("lumen.main").warning(f"Failed to mount legacy router: {e}")
 
 
 @app.get("/", response_class=HTMLResponse)

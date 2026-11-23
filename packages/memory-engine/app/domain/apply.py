@@ -80,6 +80,22 @@ class MemoryApplier:
                     c_alias,
                 )
 
+        # Outbox event for entity
+        outbox_payload = {
+            "entity_id": str(ent_id),
+            "canonical_name": clean_name,
+            "kind": kind,
+            "aliases": aliases,
+        }
+        await conn.execute(
+            """
+            INSERT INTO outbox (event_id, topic, payload, status)
+            VALUES ($1, 'entity.upserted', $2, 'queued')
+            """,
+            event_id,
+            json.dumps(outbox_payload),
+        )
+
         return ent_id
 
     async def apply_extraction(
@@ -354,6 +370,81 @@ class MemoryApplier:
                             event_id,
                         )
 
+                        # 4. Outbox events: memory.superseded & memory.created
+                        outbox_super = {
+                            "memory_id": str(old_id),
+                            "lineage_id": str(lineage_id),
+                            "version": existing["version"],
+                            "superseded_by": str(memory_id),
+                            "new_version": new_version,
+                        }
+                        super_ob_row = await conn.fetchrow(
+                            """
+                            INSERT INTO outbox (event_id, topic, payload, status)
+                            VALUES ($1, 'memory.superseded', $2, 'queued')
+                            RETURNING id
+                            """,
+                            event_id,
+                            json.dumps(outbox_super),
+                        )
+                        if super_ob_row:
+                            await conn.execute("SELECT pg_notify('lumen_outbox', $1)", str(super_ob_row["id"]))
+
+                        # Append DERIVED event for superseded
+                        await conn.execute(
+                            """
+                            INSERT INTO events (
+                                id, kind, type, actor, context_id, caused_by, target_id, content, recorded_at, occurred_at
+                            )
+                            VALUES ($1, 'DERIVED', 'memory.superseded', 'system', $2, $3, $4, $5, $6, $7)
+                            """,
+                            uuid.uuid4(),
+                            context_id,
+                            [event_id],
+                            old_id,
+                            f"Superseded by {memory_id}",
+                            now,
+                            now,
+                        )
+
+                        outbox_created = {
+                            "memory_id": str(memory_id),
+                            "lineage_id": str(lineage_id),
+                            "version": new_version,
+                            "type": m_type,
+                            "epistemic": epistemic,
+                            "statement": statement,
+                            "status": status,
+                        }
+                        create_ob_row = await conn.fetchrow(
+                            """
+                            INSERT INTO outbox (event_id, topic, payload, status)
+                            VALUES ($1, 'memory.created', $2, 'queued')
+                            RETURNING id
+                            """,
+                            event_id,
+                            json.dumps(outbox_created),
+                        )
+                        if create_ob_row:
+                            await conn.execute("SELECT pg_notify('lumen_outbox', $1)", str(create_ob_row["id"]))
+
+                        # Append DERIVED event for created
+                        await conn.execute(
+                            """
+                            INSERT INTO events (
+                                id, kind, type, actor, context_id, caused_by, target_id, content, recorded_at, occurred_at
+                            )
+                            VALUES ($1, 'DERIVED', 'memory.created', 'system', $2, $3, $4, $5, $6, $7)
+                            """,
+                            uuid.uuid4(),
+                            context_id,
+                            [event_id],
+                            memory_id,
+                            statement,
+                            now,
+                            valid_from or now,
+                        )
+
                     else:
                         # New lineage
                         lineage_id = uuid.uuid4()
@@ -386,6 +477,45 @@ class MemoryApplier:
                             event_id,
                             now,
                             valid_from,
+                        )
+
+                        # Outbox event for memory.created
+                        outbox_created = {
+                            "memory_id": str(memory_id),
+                            "lineage_id": str(lineage_id),
+                            "version": 1,
+                            "type": m_type,
+                            "epistemic": epistemic,
+                            "statement": statement,
+                            "status": status,
+                        }
+                        create_ob_row = await conn.fetchrow(
+                            """
+                            INSERT INTO outbox (event_id, topic, payload, status)
+                            VALUES ($1, 'memory.created', $2, 'queued')
+                            RETURNING id
+                            """,
+                            event_id,
+                            json.dumps(outbox_created),
+                        )
+                        if create_ob_row:
+                            await conn.execute("SELECT pg_notify('lumen_outbox', $1)", str(create_ob_row["id"]))
+
+                        # Append DERIVED event for created
+                        await conn.execute(
+                            """
+                            INSERT INTO events (
+                                id, kind, type, actor, context_id, caused_by, target_id, content, recorded_at, occurred_at
+                            )
+                            VALUES ($1, 'DERIVED', 'memory.created', 'system', $2, $3, $4, $5, $6, $7)
+                            """,
+                            uuid.uuid4(),
+                            context_id,
+                            [event_id],
+                            memory_id,
+                            statement,
+                            now,
+                            valid_from or now,
                         )
 
                         # Initialize memory_signals

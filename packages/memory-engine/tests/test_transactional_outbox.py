@@ -10,6 +10,8 @@ from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.domain.models import Entity, Triple
 
+pytestmark = pytest.mark.legacy
+
 
 
 

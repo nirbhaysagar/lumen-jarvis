@@ -9,6 +9,8 @@ from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.domain.models import Entity, Triple, CanonicalFact, MemoryType, EpistemicType
 
+pytestmark = pytest.mark.legacy
+
 
 
 

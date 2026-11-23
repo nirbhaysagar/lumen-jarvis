@@ -92,8 +92,9 @@ class OutboxWorker:
             conn = None
             try:
                 conn = await asyncpg.connect(self.postgres_dsn)
+                await conn.add_listener("lumen_outbox", self._on_notification)
                 await conn.add_listener("memory_outbox_channel", self._on_notification)
-                logger.info("LISTEN memory_outbox_channel established.")
+                logger.info("LISTEN lumen_outbox and memory_outbox_channel established.")
 
                 while self._running:
                     await asyncio.sleep(1.0)
