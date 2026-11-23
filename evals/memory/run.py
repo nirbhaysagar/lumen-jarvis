@@ -31,6 +31,7 @@ _EVAL_DB_URL = (
 
 # Force test database isolation before importing app
 os.environ["LUMEN_ENV"] = "test"
+os.environ["LUMEN_EVAL_MODE"] = "1"
 os.environ["POSTGRES_DB"] = "lumen_memory_test"
 os.environ["POSTGRES_PASSWORD"] = _EVAL_PG_PASS
 os.environ["LUMEN_DATABASE_URL"] = _EVAL_DB_URL
@@ -182,6 +183,13 @@ async def run_eval_case(case_path: Path, client: httpx.AsyncClient, pool: asyncp
             if not matched:
                 top_k_pass = False
                 reasons.append(f"Answer statements '{answer}' did not contain any of {expect['answer_contains_any']}")
+
+        # Check abstain expectation
+        if expect.get("abstain"):
+            is_abstained = (data.get("status") == "abstain" or len(memories) == 0)
+            if not is_abstained:
+                top_k_pass = False
+                reasons.append(f"Expected abstention, but got status={data.get('status')} with {len(memories)} memories: {answer}")
 
         # Check top_k_contains_setup
         if "top_k_contains_setup" in expect:

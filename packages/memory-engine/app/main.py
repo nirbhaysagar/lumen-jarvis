@@ -2,6 +2,7 @@
 Lumen Standalone Memory Engine Service.
 FastAPI Application Entrypoint & Lifespan Management.
 """
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse, HTMLResponse
@@ -33,8 +34,8 @@ async def lifespan(app: FastAPI):
     app.state.storage = storage
     app.state.db_pool = storage.pool
 
-    # 2. Initialize Embedding Adapter (Deterministic hash in test, strict verified Ollama in production)
-    if settings.LUMEN_ENV == "test":
+    # 2. Initialize Embedding Adapter (Deterministic hash in unit tests unless LUMEN_EVAL_MODE=1, strict verified Ollama in production/eval)
+    if settings.LUMEN_ENV == "test" and os.getenv("LUMEN_EVAL_MODE") != "1":
         app.state.embedding = DeterministicHashEmbeddingAdapter(dimension=settings.EMBEDDING_DIMENSION)
     else:
         import httpx

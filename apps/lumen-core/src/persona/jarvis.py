@@ -24,12 +24,16 @@ CORE PERSONALITY INVARIANTS:
 def format_context_with_memories(
     memories: Sequence[dict[str, Any]],
     conversation_history: Sequence[dict[str, str]],
+    abstained: bool = False,
 ) -> list[dict[str, str]]:
     """
     Assembles the final context window for the LLM.
     Injects verified past memories into system context within a strict token budget.
     """
     system_content = JARVIS_BASE_PROMPT
+
+    if abstained:
+        system_content += "\n\n[MEMORY NOTE]: Memory has no record relevant to this. Say so plainly ('I have no record of that, Sir') and do not invent one."
 
     if memories:
         memory_lines = []

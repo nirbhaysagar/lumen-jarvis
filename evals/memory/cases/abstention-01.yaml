@@ -1,0 +1,19 @@
+id: abstention-01
+category: abstention
+setup:
+  - content: "I do all my coding in Neovim."
+    source:
+      kind: chat
+    occurred_at: "-4d"
+  - content: "Lumen primary database is Postgres 17."
+    source:
+      kind: chat
+    occurred_at: "-2d"
+  - content: "My dog's name is Barnaby."
+    source:
+      kind: chat
+    occurred_at: "-1d"
+query:
+  text: "What is my blood group?"
+expect:
+  abstain: true

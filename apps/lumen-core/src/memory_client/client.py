@@ -70,7 +70,12 @@ class MemoryServiceClient:
             )
             if resp.status_code == 200:
                 self._record_success()
-                return resp.json().get("results", [])
+                data = resp.json()
+                if data.get("status") == "abstain":
+                    self.last_abstained = True
+                    return []
+                self.last_abstained = False
+                return data.get("results", [])
             else:
                 self._record_failure()
                 return []
@@ -192,34 +197,12 @@ class MemoryServiceClient:
     ) -> list[dict[str, Any]]:
         """
         Unified Hybrid Retrieval Service.
-        First attempts 5-channel hybrid recall (/v1/recall).
-        Falls back to legacy /api/v1/search/hybrid if needed.
+        Executes 5-channel hybrid recall (/v1/recall).
         """
         if self.circuit_open:
             return []
 
-        # Fast path: 5-channel recall
-        recalls = await self.recall(query=query, limit=limit, trace_id=trace_id)
-        if recalls:
-            return recalls
-
-        headers = {"X-Trace-ID": trace_id} if trace_id else {}
-        try:
-            resp = await self._client.post(
-                f"{self.base_url}/api/v1/search/hybrid",
-                headers=headers,
-                json={"query": query, "limit": limit, "mode": mode, "k_rrf": k_rrf},
-            )
-            if resp.status_code == 200:
-                self._record_success()
-                return resp.json().get("results", [])
-            else:
-                self._record_failure()
-                return []
-        except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError) as e:
-            logger.debug(f"Memory service connection error in hybrid search: {e}")
-            self._record_failure()
-            return []
+        return await self.recall(query=query, limit=limit, trace_id=trace_id)
 
     async def save_event(
         self,

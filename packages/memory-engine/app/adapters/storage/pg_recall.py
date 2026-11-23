@@ -9,16 +9,38 @@ Combines:
 Aggregated using Reciprocal Rank Fusion (RRF, k=60).
 """
 from __future__ import annotations
+import json
 import math
+import time
 import uuid
 import logging
 from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Literal
 import asyncpg
 from app.domain.ports import EmbeddingPort
 
 logger = logging.getLogger("lumen.memory.recall")
+
+
+class RecallResult(list):
+    """
+    List of recalled memories that also exposes status, abstain_reason, confidence, and trace_id
+    for full compatibility with both list consumers and structured RecallResponse consumers.
+    """
+    def __init__(
+        self,
+        items: list[dict[str, Any]],
+        status: Literal["ok", "abstain"] = "ok",
+        abstain_reason: Optional[str] = None,
+        confidence: Optional[float] = None,
+        trace_id: Optional[uuid.UUID] = None,
+    ):
+        super().__init__(items)
+        self.status = status
+        self.abstain_reason = abstain_reason
+        self.confidence = confidence
+        self.trace_id = trace_id or uuid.uuid4()
 
 
 class PostgresRecallAdapter:
@@ -31,31 +53,37 @@ class PostgresRecallAdapter:
         query: str,
         context_slug: str = "default",
         limit: int = 5,
-        threshold: float = 0.01,
+        threshold: float = 0.52,
         time_travel_at: Optional[datetime] = None,
         valid_at: Optional[datetime] = None,
-    ) -> list[dict[str, Any]]:
+    ) -> RecallResult:
         """
         Executes 5-channel hybrid recall and returns ranked, citation-tagged memories.
         Supports bi-temporal queries via time_travel_at (transaction time) and valid_at (world time).
+        Enforces epistemic honesty: only content channels nominate candidates; temporal decays/boosts
+        only existing candidates; abstains when no verified candidates meet thresholds.
         """
+        start_time = time.monotonic()
+        trace_id = uuid.uuid4()
         cleaned_query = query.strip()
         if not cleaned_query:
-            return []
+            return RecallResult([], status="abstain", abstain_reason="no_candidates", trace_id=trace_id)
 
         async with self.pool.acquire() as conn:
             # 1. Resolve context_id
             ctx_row = await conn.fetchrow("SELECT id FROM contexts WHERE slug = $1", context_slug)
             if not ctx_row:
-                return []
+                return RecallResult([], status="abstain", abstain_reason="no_candidates", trace_id=trace_id)
             context_id = ctx_row["id"]
 
             channel_ranks: dict[str, list[uuid.UUID]] = defaultdict(list)
+            now_dt = datetime.now(timezone.utc)
 
             # ── Channel 1: Dense Vector Similarity ──
+            # Tightened gate: minimum cosine similarity >= threshold (default 0.35)
             if self.embedding:
                 try:
-                    q_vec = await self.embedding.generate_embedding(cleaned_query)
+                    q_vec = await self.embedding.generate_embedding(cleaned_query, prefix="search_query")
                     vec_rows = await conn.fetch(
                         """
                         WITH visible_memories AS (
@@ -93,6 +121,7 @@ class PostgresRecallAdapter:
                     logger.warning(f"Vector recall channel failed: {e}")
 
             # ── Channel 2: Lexical Full-Text Search (ts_rank_cd + trgm) ──
+            # Tightened gate: requires tsv match or trigram similarity >= 0.3
             try:
                 lex_rows = await conn.fetch(
                     """
@@ -121,7 +150,7 @@ class PostgresRecallAdapter:
                     FROM visible_memories
                     WHERE (
                         tsv @@ plainto_tsquery('english', $1)
-                        OR similarity(statement, $1) > 0.08
+                        OR similarity(statement, $1) >= 0.3
                     )
                     ORDER BY score DESC
                     LIMIT 20
@@ -178,11 +207,13 @@ class PostgresRecallAdapter:
             except Exception as e:
                 logger.warning(f"Entity recall channel failed: {e}")
 
-            # ── Channel 4: Graph Expansion (1-hop from candidate matches) ──
-            initial_candidates = set(channel_ranks.get("vector", []) + channel_ranks.get("lexical", []) + channel_ranks.get("entity", []))
-            if initial_candidates:
+            # Candidate nomination rule: ONLY content channels (vector ∪ lexical ∪ entity) nominate candidates
+            content_candidates = set(channel_ranks.get("vector", []) + channel_ranks.get("lexical", []) + channel_ranks.get("entity", []))
+
+            # ── Channel 4: Graph Expansion (1-hop strictly from content candidate matches) ──
+            if content_candidates:
                 try:
-                    cand_ids = list(initial_candidates)
+                    cand_ids = list(content_candidates)
                     graph_rows = await conn.fetch(
                         """
                         WITH visible_memories AS (
@@ -216,47 +247,75 @@ class PostgresRecallAdapter:
                         valid_at,
                     )
                     channel_ranks["graph"] = [
-                        r["id"] for r in graph_rows if r["id"] not in initial_candidates
+                        r["id"] for r in graph_rows if r["id"] not in content_candidates
                     ]
                 except Exception as e:
                     logger.warning(f"Graph expansion channel failed: {e}")
 
-            # ── Channel 5: Temporal Decay / Recency ──
-            try:
-                rec_rows = await conn.fetch(
-                    """
-                    WITH visible_memories AS (
-                        SELECT * FROM memories
-                        WHERE context_id = $1
-                          AND status = 'active'
-                          AND (
-                              CASE
-                                  WHEN $2::timestamptz IS NOT NULL
-                                      THEN recorded_at <= $2 AND (superseded_at IS NULL OR superseded_at > $2)
-                                  ELSE superseded_at IS NULL
-                              END
-                          )
-                          AND (
-                              CASE
-                                  WHEN $3::timestamptz IS NOT NULL
-                                      THEN valid_from <= $3 AND (valid_to IS NULL OR valid_to > $3)
-                                  ELSE TRUE
-                              END
-                          )
+            all_candidates = set(content_candidates) | set(channel_ranks.get("graph", []))
+
+            # ── Channel 5: Temporal Decay / Recency (Boost on existing candidates ONLY) ──
+            if all_candidates:
+                try:
+                    rec_rows = await conn.fetch(
+                        """
+                        WITH visible_memories AS (
+                            SELECT * FROM memories
+                            WHERE context_id = $1
+                              AND id = ANY($2::uuid[])
+                              AND status = 'active'
+                              AND (
+                                  CASE
+                                      WHEN $3::timestamptz IS NOT NULL
+                                          THEN recorded_at <= $3 AND (superseded_at IS NULL OR superseded_at > $3)
+                                      ELSE superseded_at IS NULL
+                                  END
+                              )
+                              AND (
+                                  CASE
+                                      WHEN $4::timestamptz IS NOT NULL
+                                          THEN valid_from <= $4 AND (valid_to IS NULL OR valid_to > $4)
+                                      ELSE TRUE
+                                  END
+                              )
+                        )
+                        SELECT id,
+                               (importance * confidence * exp(-0.015 * EXTRACT(EPOCH FROM (now() - recorded_at)) / 86400.0)) AS score
+                        FROM visible_memories
+                        ORDER BY score DESC
+                        LIMIT 20
+                        """,
+                        context_id,
+                        list(all_candidates),
+                        time_travel_at,
+                        valid_at,
                     )
-                    SELECT id,
-                           (importance * confidence * exp(-0.015 * EXTRACT(EPOCH FROM (now() - recorded_at)) / 86400.0)) AS score
-                    FROM visible_memories
-                    ORDER BY score DESC
-                    LIMIT 20
+                    channel_ranks["temporal"] = [r["id"] for r in rec_rows]
+                except Exception as e:
+                    logger.warning(f"Temporal recall channel failed: {e}")
+
+            # Abstention Check: If no content/graph candidates were nominated, abstain!
+            if not all_candidates:
+                latency_ms = int((time.monotonic() - start_time) * 1000)
+                await conn.execute(
+                    """
+                    INSERT INTO retrieval_traces (
+                        id, query, context_ids, as_of, plan, channels, fused, returned, latency_ms, created_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                     """,
-                    context_id,
-                    time_travel_at,
-                    valid_at,
+                    trace_id,
+                    cleaned_query,
+                    [context_id],
+                    time_travel_at or valid_at or now_dt,
+                    json.dumps({"limit": limit, "threshold": threshold, "time_travel_at": str(time_travel_at) if time_travel_at else None, "valid_at": str(valid_at) if valid_at else None}),
+                    json.dumps({k: [str(x) for x in v] for k, v in channel_ranks.items()}),
+                    json.dumps([]),
+                    [],
+                    latency_ms,
+                    now_dt,
                 )
-                channel_ranks["temporal"] = [r["id"] for r in rec_rows]
-            except Exception as e:
-                logger.warning(f"Temporal recall channel failed: {e}")
+                return RecallResult([], status="abstain", abstain_reason="no_candidates", trace_id=trace_id)
 
             # ── Reciprocal Rank Fusion (RRF, k=60) ──
             K = 60.0
@@ -275,7 +334,26 @@ class PostgresRecallAdapter:
                     rrf_scores[mid] += w / (K + rank_idx + 1)
 
             if not rrf_scores:
-                return []
+                latency_ms = int((time.monotonic() - start_time) * 1000)
+                await conn.execute(
+                    """
+                    INSERT INTO retrieval_traces (
+                        id, query, context_ids, as_of, plan, channels, fused, returned, latency_ms, created_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    """,
+                    trace_id,
+                    cleaned_query,
+                    [context_id],
+                    time_travel_at or valid_at or now_dt,
+                    json.dumps({"limit": limit, "threshold": threshold}),
+                    json.dumps({k: [str(x) for x in v] for k, v in channel_ranks.items()}),
+                    json.dumps([]),
+                    [],
+                    latency_ms,
+                    now_dt,
+                )
+                return RecallResult([], status="abstain", abstain_reason="no_candidates", trace_id=trace_id)
 
             # Sort top-k memory IDs by combined RRF score
             sorted_mids = sorted(rrf_scores.keys(), key=lambda mid: rrf_scores[mid], reverse=True)[:limit]
@@ -356,4 +434,32 @@ class PostgresRecallAdapter:
                     "score": round(rrf_scores[mid], 6),
                 })
 
-            return results
+            # Record retrieval trace in DB
+            latency_ms = int((time.monotonic() - start_time) * 1000)
+            returned_uuids = [uuid.UUID(r["id"]) for r in results]
+            fused_list = [{"id": str(mid), "score": rrf_scores[mid]} for mid in sorted_mids]
+            await conn.execute(
+                """
+                INSERT INTO retrieval_traces (
+                    id, query, context_ids, as_of, plan, channels, fused, returned, latency_ms, created_at
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                """,
+                trace_id,
+                cleaned_query,
+                [context_id],
+                time_travel_at or valid_at or now_dt,
+                json.dumps({"limit": limit, "threshold": threshold, "time_travel_at": str(time_travel_at) if time_travel_at else None, "valid_at": str(valid_at) if valid_at else None}),
+                json.dumps({k: [str(x) for x in v] for k, v in channel_ranks.items()}),
+                json.dumps(fused_list),
+                returned_uuids,
+                latency_ms,
+                now_dt,
+            )
+
+            if results:
+                max_conf = max((r["confidence"] for r in results), default=1.0)
+                return RecallResult(results, status="ok", confidence=max_conf, trace_id=trace_id)
+            else:
+                return RecallResult([], status="abstain", abstain_reason="no_candidates", trace_id=trace_id)
+

@@ -24,7 +24,7 @@ class DeterministicHashEmbeddingAdapter(EmbeddingPort):
     def dimension(self) -> int:
         return self._dim
 
-    async def generate_embedding(self, text: str) -> list[float]:
+    async def generate_embedding(self, text: str, prefix: str | None = None) -> list[float]:
         vec = [0.0] * self._dim
         words = re.findall(r"\w+", text.lower())
         if not words:
@@ -65,10 +65,19 @@ class OllamaEmbeddingAdapter(EmbeddingPort):
     def dimension(self) -> int:
         return self._dim
 
-    async def generate_embedding(self, text: str) -> list[float]:
+    async def generate_embedding(self, text: str, prefix: str | None = None) -> list[float]:
+        prompt = text
+        if prefix:
+            clean_p = prefix.rstrip(" :")
+            if not prompt.startswith(f"{clean_p}:"):
+                prompt = f"{clean_p}: {prompt}"
+        elif "nomic-embed-text" in self._model:
+            if not (prompt.startswith("search_query:") or prompt.startswith("search_document:")):
+                prompt = f"search_document: {prompt}"
+
         resp = await self._client.post(
             f"{self._base_url}/api/embed",
-            json={"model": self._model, "input": text},
+            json={"model": self._model, "input": prompt},
         )
         resp.raise_for_status()
         data = resp.json()
@@ -78,7 +87,7 @@ class OllamaEmbeddingAdapter(EmbeddingPort):
         # Fallback to single embed endpoint
         resp2 = await self._client.post(
             f"{self._base_url}/api/embeddings",
-            json={"model": self._model, "prompt": text},
+            json={"model": self._model, "prompt": prompt},
         )
         resp2.raise_for_status()
         return resp2.json().get("embedding", [0.0] * self._dim)

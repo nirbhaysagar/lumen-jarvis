@@ -213,6 +213,6 @@ class EmbeddingPort(ABC):
         pass
 
     @abstractmethod
-    async def generate_embedding(self, text: str) -> list[float]:
+    async def generate_embedding(self, text: str, prefix: str | None = None) -> list[float]:
         """Produce a normalized vector embedding for given text."""
         pass

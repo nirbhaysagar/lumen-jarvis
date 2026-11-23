@@ -208,7 +208,7 @@ async def extract_and_apply(
                 try:
                     stmt = m.get("statement", "")
                     if stmt:
-                        vec = await embedding_adapter.generate_embedding(stmt)
+                        vec = await embedding_adapter.generate_embedding(stmt, prefix="search_document")
                         model_name = getattr(embedding_adapter, "_model", None) or getattr(embedding_adapter, "model", settings.EMBEDDING_MODEL)
                         await conn.execute(
                             "UPDATE memories SET embedding = $1, embedding_model = $2 WHERE id = $3",
