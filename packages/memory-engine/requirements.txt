@@ -1,2 +1,3 @@
-# stdlib only for v0. Add later: openai/anthropic, numpy, sqlite-vec, fastapi
+-e .
+
 

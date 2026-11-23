@@ -45,7 +45,6 @@ class Settings(BaseSettings):
     PREFER_LOCAL_MODELS: bool = Field(default_factory=lambda: os.getenv("PREFER_LOCAL_MODELS", "true").lower() in ("true", "1", "yes"))
     EMBEDDING_DIMENSION: int = 768
     EMBEDDING_MODEL: str = "nomic-embed-text"
-    OPENAI_API_KEY: str | None = None
     LUMEN_LLM_MODEL: str = "qwen2.5:7b-instruct"
     OLLAMA_BASE_URL: str = "http://127.0.0.1:11434"
 

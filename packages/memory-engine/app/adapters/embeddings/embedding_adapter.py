@@ -1,6 +1,6 @@
 """
 Embedding Adapters for Vector Generation.
-Supports both external LLM embedding APIs (OpenAI/LiteLLM) and local fallback.
+Supports local Ollama embedding API and deterministic hash fallback.
 """
 from __future__ import annotations
 import math
@@ -82,28 +82,3 @@ class OllamaEmbeddingAdapter(EmbeddingPort):
         )
         resp2.raise_for_status()
         return resp2.json().get("embedding", [0.0] * self._dim)
-
-
-class OpenAIEmbeddingAdapter(EmbeddingPort):
-    """
-    Production embedding adapter calling OpenAI / LiteLLM API.
-    """
-    def __init__(self, api_key: str, model: str = "text-embedding-3-small", dimension: int = 1536):
-        self._api_key = api_key
-        self._model = model
-        self._dim = dimension
-        self._client = httpx.AsyncClient(timeout=10.0)
-
-    @property
-    def dimension(self) -> int:
-        return self._dim
-
-    async def generate_embedding(self, text: str) -> list[float]:
-        response = await self._client.post(
-            "https://api.openai.com/v1/embeddings",
-            headers={"Authorization": f"Bearer {self._api_key}"},
-            json={"input": text, "model": self._model},
-        )
-        response.raise_for_status()
-        data = response.json()
-        return data["data"][0]["embedding"]

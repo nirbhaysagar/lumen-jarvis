@@ -15,7 +15,6 @@ dependencies = [
     "asyncpg>=0.29.0",
     "pgvector>=0.2.5",
     "alembic>=1.13.0",
-    "unclecode-litellm>=1.81.0",
     "jsonschema>=4.20.0",
     "rapidfuzz>=3.6.0",
     "dateparser>=1.2.0",
@@ -28,6 +27,7 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
+    "pip-licenses>=4.3.0",
 ]
 
 [project.scripts]

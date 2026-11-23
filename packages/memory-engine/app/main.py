@@ -10,7 +10,6 @@ from app.core.config import settings
 from app.adapters.storage.postgres_adapter import PostgresStorageAdapter
 from app.adapters.embeddings.embedding_adapter import (
     DeterministicHashEmbeddingAdapter,
-    OpenAIEmbeddingAdapter,
     OllamaEmbeddingAdapter,
 )
 from app.api.middleware.correlation import CorrelationMiddleware, get_current_trace_id
@@ -34,31 +33,50 @@ async def lifespan(app: FastAPI):
     app.state.storage = storage
     app.state.db_pool = storage.pool
 
-    # 2. Initialize Embedding Adapter
-    if settings.PREFER_LOCAL_MODELS:
-        # Prioritize local Ollama nomic-embed-text (768-d), fallback to deterministic hash
-        try:
-            import httpx
-            with httpx.Client(timeout=0.5) as client:
-                resp = client.get(f"{settings.OLLAMA_BASE_URL}/api/tags")
-                if resp.status_code == 200:
-                    app.state.embedding = OllamaEmbeddingAdapter(
-                        base_url=settings.OLLAMA_BASE_URL,
-                        model=settings.EMBEDDING_MODEL,
-                        dimension=settings.EMBEDDING_DIMENSION,
-                    )
-                else:
-                    app.state.embedding = DeterministicHashEmbeddingAdapter(dimension=settings.EMBEDDING_DIMENSION)
-        except Exception:
-            app.state.embedding = DeterministicHashEmbeddingAdapter(dimension=settings.EMBEDDING_DIMENSION)
-    elif settings.OPENAI_API_KEY:
-        app.state.embedding = OpenAIEmbeddingAdapter(
-            api_key=settings.OPENAI_API_KEY,
-            model=settings.EMBEDDING_MODEL,
-            dimension=settings.EMBEDDING_DIMENSION,
-        )
-    else:
+    # 2. Initialize Embedding Adapter (Deterministic hash in test, strict verified Ollama in production)
+    if settings.LUMEN_ENV == "test":
         app.state.embedding = DeterministicHashEmbeddingAdapter(dimension=settings.EMBEDDING_DIMENSION)
+    else:
+        import httpx
+        import asyncio
+        ollama_ok = False
+        last_err = None
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    resp = await client.get(f"{settings.OLLAMA_BASE_URL}/api/tags")
+                    if resp.status_code == 200:
+                        models = [m.get("name", "") for m in resp.json().get("models", [])]
+                        has_model = any(settings.EMBEDDING_MODEL in m for m in models)
+                        if not has_model:
+                            raise RuntimeError(
+                                f"Embedding model '{settings.EMBEDDING_MODEL}' is not pulled in Ollama. Run: ollama pull {settings.EMBEDDING_MODEL}"
+                            )
+                        adapter = OllamaEmbeddingAdapter(
+                            base_url=settings.OLLAMA_BASE_URL,
+                            model=settings.EMBEDDING_MODEL,
+                            dimension=settings.EMBEDDING_DIMENSION,
+                        )
+                        test_vec = await adapter.generate_embedding("ping")
+                        if len(test_vec) != settings.EMBEDDING_DIMENSION:
+                            raise RuntimeError(
+                                f"Expected embedding dimension {settings.EMBEDDING_DIMENSION}, got {len(test_vec)}"
+                            )
+                        app.state.embedding = adapter
+                        ollama_ok = True
+                        break
+                    else:
+                        last_err = RuntimeError(f"Ollama returned HTTP {resp.status_code}")
+            except Exception as e:
+                last_err = e
+                if attempt < 2:
+                    await asyncio.sleep(1.0)
+
+        if not ollama_ok:
+            raise RuntimeError(
+                f"Ollama embedding validation failed: {last_err}. "
+                f"Memory engine requires local Ollama running with model '{settings.EMBEDDING_MODEL}'."
+            )
 
     yield
 
@@ -272,7 +290,7 @@ async def root_dashboard():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint with active correlation ID and database state."""
+    """Health check endpoint with active correlation ID and embedding model state."""
     trace_id = get_current_trace_id()
     return JSONResponse(
         content={
@@ -280,11 +298,53 @@ async def health_check():
             "service": settings.SERVICE_NAME,
             "environment": settings.ENVIRONMENT,
             "trace_id": trace_id,
+            "embedding_model": settings.EMBEDDING_MODEL,
+            "dim": settings.EMBEDDING_DIMENSION,
+            "ollama": "ok",
         },
         headers={"X-Trace-ID": trace_id},
     )
 
 
-if __name__ == "__main__":
+def cli():
+    """CLI entrypoint for lumen-memory command."""
+    import sys
     import uvicorn
-    uvicorn.run("app.main:app", host=settings.HOST, port=settings.PORT, reload=settings.DEBUG)
+    args = sys.argv[1:]
+    cmd = args[0] if args else "serve"
+    if cmd == "serve":
+        uvicorn.run("app.main:app", host=settings.HOST, port=settings.PORT, reload=settings.DEBUG)
+    elif cmd == "worker":
+        print("Starting background jobs worker...")
+        try:
+            from app.workers.jobs_worker import main as worker_main
+            import asyncio
+            asyncio.run(worker_main())
+        except ImportError:
+            print("Jobs worker will be wired in Milestone M0.8.")
+    elif cmd == "vault":
+        subcmd = args[1] if len(args) > 1 else ""
+        if subcmd == "rebuild":
+            print("Rebuilding Obsidian vault projection...")
+            try:
+                from app.vault.projector import rebuild_vault
+                import asyncio
+                asyncio.run(rebuild_vault())
+            except ImportError:
+                print("Vault projector will be wired in Milestone O1.")
+        else:
+            print("Usage: lumen-memory vault rebuild")
+    elif cmd == "mcp":
+        print("Starting MCP server...")
+        try:
+            from app.mcp.server import main as mcp_main
+            import asyncio
+            asyncio.run(mcp_main())
+        except ImportError:
+            print("MCP server will be wired in Milestone P1.")
+    else:
+        print(f"Unknown command: '{cmd}'. Usage: lumen-memory [serve|worker|vault rebuild|mcp]")
+
+
+if __name__ == "__main__":
+    cli()

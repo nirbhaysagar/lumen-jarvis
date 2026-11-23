@@ -17,6 +17,7 @@ from app.domain.extraction import MemoryExtractor
 from app.domain.errors import ExtractionError
 from app.domain.apply import MemoryApplier
 from app.domain.ports import EmbeddingPort
+from app.core.config import settings
 
 logger = logging.getLogger("lumen.memory.extract_api")
 router = APIRouter(prefix="/v1", tags=["extract"])
@@ -195,9 +196,11 @@ async def extract_and_apply(
                     stmt = m.get("statement", "")
                     if stmt:
                         vec = await embedding_adapter.generate_embedding(stmt)
+                        model_name = getattr(embedding_adapter, "_model", None) or getattr(embedding_adapter, "model", settings.EMBEDDING_MODEL)
                         await conn.execute(
-                            "UPDATE memories SET embedding = $1 WHERE id = $2",
+                            "UPDATE memories SET embedding = $1, embedding_model = $2 WHERE id = $3",
                             list(vec),
+                            model_name,
                             uuid.UUID(m["id"]),
                         )
                 except Exception as e:
