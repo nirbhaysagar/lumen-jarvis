@@ -58,3 +58,13 @@ out/
 # Runtime & Scratch
 vault/scratch/
 *.png
+
+# personal data — never commit
+*.dump
+*backup*.sql
+infra/docker/postgres/backup_*.sql
+evals/memory/results/*
+!evals/memory/results/.gitkeep
+vault/**/*.md
+!vault/README.md
+
