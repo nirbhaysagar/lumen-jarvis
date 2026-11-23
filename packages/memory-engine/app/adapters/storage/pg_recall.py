@@ -33,9 +33,11 @@ class PostgresRecallAdapter:
         limit: int = 5,
         threshold: float = 0.01,
         time_travel_at: Optional[datetime] = None,
+        valid_at: Optional[datetime] = None,
     ) -> list[dict[str, Any]]:
         """
         Executes 5-channel hybrid recall and returns ranked, citation-tagged memories.
+        Supports bi-temporal queries via time_travel_at (transaction time) and valid_at (world time).
         """
         cleaned_query = query.strip()
         if not cleaned_query:
@@ -56,14 +58,35 @@ class PostgresRecallAdapter:
                     q_vec = await self.embedding.generate_embedding(cleaned_query)
                     vec_rows = await conn.fetch(
                         """
+                        WITH visible_memories AS (
+                            SELECT * FROM memories
+                            WHERE context_id = $2
+                              AND status = 'active'
+                              AND (
+                                  CASE
+                                      WHEN $3::timestamptz IS NOT NULL
+                                          THEN recorded_at <= $3 AND (superseded_at IS NULL OR superseded_at > $3)
+                                      ELSE superseded_at IS NULL
+                                  END
+                              )
+                              AND (
+                                  CASE
+                                      WHEN $4::timestamptz IS NOT NULL
+                                          THEN valid_from <= $4 AND (valid_to IS NULL OR valid_to > $4)
+                                      ELSE TRUE
+                                  END
+                              )
+                        )
                         SELECT id, 1 - (embedding <=> $1) AS sim
-                        FROM current_memories
-                        WHERE embedding IS NOT NULL AND context_id = $2
+                        FROM visible_memories
+                        WHERE embedding IS NOT NULL
                         ORDER BY embedding <=> $1 ASC
                         LIMIT 20
                         """,
                         list(q_vec),
                         context_id,
+                        time_travel_at,
+                        valid_at,
                     )
                     channel_ranks["vector"] = [r["id"] for r in vec_rows if r["sim"] is not None and r["sim"] >= threshold]
                 except Exception as e:
@@ -73,11 +96,30 @@ class PostgresRecallAdapter:
             try:
                 lex_rows = await conn.fetch(
                     """
+                    WITH visible_memories AS (
+                        SELECT * FROM memories
+                        WHERE context_id = $2
+                          AND status = 'active'
+                          AND (
+                              CASE
+                                  WHEN $3::timestamptz IS NOT NULL
+                                      THEN recorded_at <= $3 AND (superseded_at IS NULL OR superseded_at > $3)
+                                  ELSE superseded_at IS NULL
+                              END
+                          )
+                          AND (
+                              CASE
+                                  WHEN $4::timestamptz IS NOT NULL
+                                      THEN valid_from <= $4 AND (valid_to IS NULL OR valid_to > $4)
+                                  ELSE TRUE
+                              END
+                          )
+                    )
                     SELECT id,
                            (ts_rank_cd(tsv, plainto_tsquery('english', $1)) * 0.7 +
                             similarity(statement, $1) * 0.3) AS score
-                    FROM current_memories
-                    WHERE context_id = $2 AND (
+                    FROM visible_memories
+                    WHERE (
                         tsv @@ plainto_tsquery('english', $1)
                         OR similarity(statement, $1) > 0.08
                     )
@@ -86,6 +128,8 @@ class PostgresRecallAdapter:
                     """,
                     cleaned_query,
                     context_id,
+                    time_travel_at,
+                    valid_at,
                 )
                 channel_ranks["lexical"] = [r["id"] for r in lex_rows]
             except Exception as e:
@@ -95,11 +139,30 @@ class PostgresRecallAdapter:
             try:
                 entity_rows = await conn.fetch(
                     """
+                    WITH visible_memories AS (
+                        SELECT * FROM memories
+                        WHERE context_id = $2
+                          AND status = 'active'
+                          AND (
+                              CASE
+                                  WHEN $3::timestamptz IS NOT NULL
+                                      THEN recorded_at <= $3 AND (superseded_at IS NULL OR superseded_at > $3)
+                                  ELSE superseded_at IS NULL
+                              END
+                          )
+                          AND (
+                              CASE
+                                  WHEN $4::timestamptz IS NOT NULL
+                                      THEN valid_from <= $4 AND (valid_to IS NULL OR valid_to > $4)
+                                  ELSE TRUE
+                              END
+                          )
+                    )
                     SELECT DISTINCT m.id
-                    FROM current_memories m
+                    FROM visible_memories m
                     JOIN entities e ON (m.subject_id = e.id OR m.object_id = e.id)
                     LEFT JOIN entity_aliases a ON a.entity_id = e.id
-                    WHERE m.context_id = $2 AND (
+                    WHERE (
                         lower($1) LIKE '%' || lower(e.canonical_name) || '%'
                         OR (a.alias IS NOT NULL AND lower($1) LIKE '%' || lower(a.alias) || '%')
                         OR similarity(e.canonical_name, $1) > 0.25
@@ -108,6 +171,8 @@ class PostgresRecallAdapter:
                     """,
                     cleaned_query,
                     context_id,
+                    time_travel_at,
+                    valid_at,
                 )
                 channel_ranks["entity"] = [r["id"] for r in entity_rows]
             except Exception as e:
@@ -120,16 +185,35 @@ class PostgresRecallAdapter:
                     cand_ids = list(initial_candidates)
                     graph_rows = await conn.fetch(
                         """
-                        SELECT DISTINCT to_memory AS id
-                        FROM memory_relations
-                        WHERE from_memory = ANY($1::uuid[])
-                        UNION
-                        SELECT DISTINCT from_memory AS id
-                        FROM memory_relations
-                        WHERE to_memory = ANY($1::uuid[])
+                        WITH visible_memories AS (
+                            SELECT * FROM memories
+                            WHERE context_id = $2
+                              AND status = 'active'
+                              AND (
+                                  CASE
+                                      WHEN $3::timestamptz IS NOT NULL
+                                          THEN recorded_at <= $3 AND (superseded_at IS NULL OR superseded_at > $3)
+                                      ELSE superseded_at IS NULL
+                                  END
+                              )
+                              AND (
+                                  CASE
+                                      WHEN $4::timestamptz IS NOT NULL
+                                          THEN valid_from <= $4 AND (valid_to IS NULL OR valid_to > $4)
+                                      ELSE TRUE
+                                  END
+                              )
+                        )
+                        SELECT DISTINCT target.id
+                        FROM memory_relations r
+                        JOIN visible_memories target ON (target.id = r.to_memory OR target.id = r.from_memory)
+                        WHERE (r.from_memory = ANY($1::uuid[]) OR r.to_memory = ANY($1::uuid[]))
                         LIMIT 20
                         """,
                         cand_ids,
+                        context_id,
+                        time_travel_at,
+                        valid_at,
                     )
                     channel_ranks["graph"] = [
                         r["id"] for r in graph_rows if r["id"] not in initial_candidates
@@ -141,14 +225,34 @@ class PostgresRecallAdapter:
             try:
                 rec_rows = await conn.fetch(
                     """
+                    WITH visible_memories AS (
+                        SELECT * FROM memories
+                        WHERE context_id = $1
+                          AND status = 'active'
+                          AND (
+                              CASE
+                                  WHEN $2::timestamptz IS NOT NULL
+                                      THEN recorded_at <= $2 AND (superseded_at IS NULL OR superseded_at > $2)
+                                  ELSE superseded_at IS NULL
+                              END
+                          )
+                          AND (
+                              CASE
+                                  WHEN $3::timestamptz IS NOT NULL
+                                      THEN valid_from <= $3 AND (valid_to IS NULL OR valid_to > $3)
+                                  ELSE TRUE
+                              END
+                          )
+                    )
                     SELECT id,
                            (importance * confidence * exp(-0.015 * EXTRACT(EPOCH FROM (now() - recorded_at)) / 86400.0)) AS score
-                    FROM current_memories
-                    WHERE context_id = $1
+                    FROM visible_memories
                     ORDER BY score DESC
                     LIMIT 20
                     """,
                     context_id,
+                    time_travel_at,
+                    valid_at,
                 )
                 channel_ranks["temporal"] = [r["id"] for r in rec_rows]
             except Exception as e:
@@ -176,11 +280,12 @@ class PostgresRecallAdapter:
             # Sort top-k memory IDs by combined RRF score
             sorted_mids = sorted(rrf_scores.keys(), key=lambda mid: rrf_scores[mid], reverse=True)[:limit]
 
-            # Fetch rich details for top memories
+            # Fetch rich details for top memories (including bi-temporal validity)
             mem_rows = await conn.fetch(
                 """
                 SELECT m.id, m.lineage_id, m.version, m.type, m.epistemic, m.statement,
                        m.confidence, m.importance, m.recorded_at, m.status,
+                       m.valid_from, m.valid_to,
                        sub.canonical_name AS subject_name,
                        obj.canonical_name AS object_name
                 FROM memories m
@@ -192,13 +297,14 @@ class PostgresRecallAdapter:
             )
             mem_map = {r["id"]: dict(r) for r in mem_rows}
 
-            # Fetch associated citations
+            # Fetch associated citations joined with events and sources
             cit_rows = await conn.fetch(
                 """
                 SELECT c.memory_id, c.event_id, c.quote, c.verified, c.char_start, c.char_end,
+                       e.occurred_at AS said_at, e.recorded_at AS captured_at,
                        s.title AS source_title, s.kind AS source_kind
                 FROM citations c
-                LEFT JOIN events e ON c.event_id = e.id
+                JOIN events e ON c.event_id = e.id
                 LEFT JOIN sources s ON e.source_id = s.id
                 WHERE c.memory_id = ANY($1::uuid[])
                 """,
@@ -215,6 +321,7 @@ class PostgresRecallAdapter:
                 if not m:
                     continue
                 cits = cit_map.get(mid, [])
+                primary_said_at = cits[0].get("said_at") if cits else None
                 results.append({
                     "id": str(m["id"]),
                     "citation_id": f"M{idx+1}",
@@ -227,6 +334,9 @@ class PostgresRecallAdapter:
                     "confidence": float(m["confidence"]),
                     "importance": float(m["importance"]),
                     "recorded_at": m["recorded_at"].isoformat() if m["recorded_at"] else None,
+                    "valid_from": m["valid_from"].isoformat() if m.get("valid_from") else None,
+                    "valid_to": m["valid_to"].isoformat() if m.get("valid_to") else None,
+                    "said_at": primary_said_at.isoformat() if isinstance(primary_said_at, datetime) else (str(primary_said_at) if primary_said_at else None),
                     "subject": m.get("subject_name"),
                     "object": m.get("object_name"),
                     "citations": [
@@ -236,7 +346,10 @@ class PostgresRecallAdapter:
                             "verified": c["verified"],
                             "char_start": c["char_start"],
                             "char_end": c["char_end"],
+                            "said_at": c["said_at"].isoformat() if isinstance(c.get("said_at"), datetime) else (str(c["said_at"]) if c.get("said_at") else None),
+                            "captured_at": c["captured_at"].isoformat() if isinstance(c.get("captured_at"), datetime) else (str(c["captured_at"]) if c.get("captured_at") else None),
                             "source_title": c.get("source_title"),
+                            "source_kind": c.get("source_kind"),
                         }
                         for c in cits
                     ],

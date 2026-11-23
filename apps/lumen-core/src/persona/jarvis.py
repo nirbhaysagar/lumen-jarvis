@@ -3,6 +3,7 @@ Persona Engine & System Prompt Configuration.
 Enforces the JARVIS persona: highly competent, concise, dry British wit, and loyal.
 """
 from typing import Sequence, Any
+from datetime import datetime
 
 JARVIS_BASE_PROMPT = """You are Lumen, a real-life JARVIS and autonomous Personal AI Operating System developed under Cerebro Dynamics.
 You are not a chatbot, search engine, or sycophant. You are an exceptionally competent, loyal, and articulate intellectual partner.
@@ -42,7 +43,17 @@ def format_context_with_memories(
                 if cits:
                     quote = cits[0].get("quote", "")
                     cit_str = f' (Quoted: "{quote}")'
-                date_str = f" [{m['recorded_at'][:10]}]" if m.get("recorded_at") else ""
+                said_at_raw = m.get("said_at")
+                if said_at_raw:
+                    try:
+                        dt = datetime.fromisoformat(str(said_at_raw).replace("Z", "+00:00"))
+                        date_str = f" (you said on {dt.strftime('%d %b %Y')})"
+                    except Exception:
+                        date_str = f" (you said on {str(said_at_raw)[:10]})"
+                elif m.get("recorded_at"):
+                    date_str = f" [{m['recorded_at'][:10]}]"
+                else:
+                    date_str = ""
                 memory_lines.append(f"• {tag} [{m_type}] {stmt}{cit_str}{date_str}")
             else:
                 entity = m.get("entity", "")

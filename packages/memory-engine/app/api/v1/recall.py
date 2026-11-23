@@ -3,6 +3,7 @@ API route handler for POST /v1/recall.
 Executes 5-channel hybrid recall across vector, lexical, entity, graph, and temporal channels.
 """
 from __future__ import annotations
+from datetime import datetime
 from typing import Any, List, Optional
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
@@ -17,6 +18,8 @@ class RecallRequest(BaseModel):
     context: str = "default"
     limit: int = Field(default=5, ge=1, le=50)
     threshold: float = Field(default=0.01, ge=0.0, le=1.0)
+    time_travel_at: Optional[datetime] = None
+    valid_at: Optional[datetime] = None
 
 
 class RecallResponse(BaseModel):
@@ -43,5 +46,7 @@ async def recall_memories(
         context_slug=req.context,
         limit=req.limit,
         threshold=req.threshold,
+        time_travel_at=req.time_travel_at,
+        valid_at=req.valid_at,
     )
     return RecallResponse(results=memories, count=len(memories))

@@ -95,13 +95,14 @@ class PostgresEventsAdapter:
                 event_id = uuid.uuid4()
                 event_type = f"capture.{req.source.kind}"
                 actor = req.source.author or "user"
+                recorded_at = req.recorded_at or datetime.now(timezone.utc)
                 await conn.execute(
                     """
                     INSERT INTO events (
                         id, kind, type, actor, source_id, context_id,
-                        content, content_hash, idempotency_key, occurred_at
+                        content, content_hash, idempotency_key, occurred_at, recorded_at
                     )
-                    VALUES ($1, 'CAPTURE', $2, $3, $4, $5, $6, $7, $8, $9)
+                    VALUES ($1, 'CAPTURE', $2, $3, $4, $5, $6, $7, $8, $9, $10)
                     """,
                     event_id,
                     event_type,
@@ -112,6 +113,7 @@ class PostgresEventsAdapter:
                     content_hash,
                     req.idempotency_key,
                     occurred_at,
+                    recorded_at,
                 )
 
                 # 5. Split chunks (character spans)

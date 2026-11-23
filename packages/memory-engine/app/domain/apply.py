@@ -9,6 +9,7 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 import uuid
 import asyncpg
+import dateparser
 
 from app.domain.evidence import find_evidence_span
 
@@ -106,11 +107,18 @@ class MemoryApplier:
             async with conn.transaction():
                 # 0. Resolve source_id for provenance and claims
                 event_row = await conn.fetchrow(
-                    "SELECT source_id, actor FROM events WHERE id = $1",
+                    "SELECT source_id, actor, occurred_at, recorded_at FROM events WHERE id = $1",
                     event_id,
                 )
                 source_id = event_row["source_id"] if event_row else None
                 event_actor = event_row["actor"] if event_row and event_row["actor"] else "user"
+                event_occurred_at = event_row["occurred_at"] if event_row and event_row.get("occurred_at") else datetime.now(timezone.utc)
+                if event_occurred_at.tzinfo is None:
+                    event_occurred_at = event_occurred_at.replace(tzinfo=timezone.utc)
+                event_recorded_at = event_row["recorded_at"] if event_row and event_row.get("recorded_at") else datetime.now(timezone.utc)
+                if event_recorded_at.tzinfo is None:
+                    event_recorded_at = event_recorded_at.replace(tzinfo=timezone.utc)
+
                 if not source_id:
                     # Ensure a source exists for claims foreign key constraint
                     source_row = await conn.fetchrow(
@@ -233,7 +241,45 @@ class MemoryApplier:
                                 json.dumps(obj_val) if obj_val is not None else None,
                             )
 
-                    now = datetime.now(timezone.utc)
+                    # Step 2: Bi-temporal anchor resolution (valid_from_text -> valid_from)
+                    valid_from_text = mem.get("valid_from_text")
+                    valid_from = None
+                    if valid_from_text:
+                        try:
+                            import re
+                            clean_text = re.sub(
+                                r"^(since|from|as of|in|starting)\s+",
+                                "",
+                                valid_from_text.strip(),
+                                flags=re.IGNORECASE,
+                            )
+                            parsed_dt = dateparser.parse(
+                                clean_text,
+                                settings={"RELATIVE_BASE": event_occurred_at, "RETURN_AS_TIMEZONE_AWARE": True},
+                            )
+                            if not parsed_dt:
+                                parsed_dt = dateparser.parse(
+                                    valid_from_text,
+                                    settings={"RELATIVE_BASE": event_occurred_at, "RETURN_AS_TIMEZONE_AWARE": True},
+                                )
+                            if parsed_dt:
+                                valid_from = parsed_dt
+                        except Exception as e:
+                            logger.warning(f"Failed to parse valid_from_text '{valid_from_text}': {e}")
+
+                    if not valid_from:
+                        if mem.get("valid_from"):
+                            try:
+                                valid_from = datetime.fromisoformat(mem["valid_from"])
+                            except Exception:
+                                valid_from = event_occurred_at
+                        else:
+                            valid_from = event_occurred_at
+
+                    if valid_from and valid_from.tzinfo is None:
+                        valid_from = valid_from.replace(tzinfo=timezone.utc)
+
+                    now = event_recorded_at
                     memory_id = uuid.uuid4()
 
                     should_supersede = False
@@ -256,9 +302,9 @@ class MemoryApplier:
                                 id, lineage_id, version, type, epistemic, asserted_by,
                                 statement, subject_id, predicate, object_id, object_value,
                                 cardinality, polarity, confidence, importance, context_id,
-                                status, created_event, recorded_at
+                                status, created_event, recorded_at, valid_from
                             )
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
                             """,
                             memory_id,
                             lineage_id,
@@ -279,17 +325,19 @@ class MemoryApplier:
                             status,
                             event_id,
                             now,
+                            valid_from,
                         )
 
-                        # 2. Close out old memory (close-out trigger permits setting superseded_at, superseded_by, valid_to once)
+                        # 2. Close out old memory: valid_to = new.valid_from (world time), superseded_at = now (tx time)
                         await conn.execute(
                             """
                             UPDATE memories
-                            SET superseded_at = $1, superseded_by = $2, valid_to = $1
-                            WHERE id = $3
+                            SET superseded_at = $1, superseded_by = $2, valid_to = $3
+                            WHERE id = $4
                             """,
                             now,
                             memory_id,
+                            valid_from,
                             old_id,
                         )
 
@@ -315,9 +363,9 @@ class MemoryApplier:
                                 id, lineage_id, version, type, epistemic, asserted_by,
                                 statement, subject_id, predicate, object_id, object_value,
                                 cardinality, polarity, confidence, importance, context_id,
-                                status, created_event, recorded_at
+                                status, created_event, recorded_at, valid_from
                             )
-                            VALUES ($1, $2, 1, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+                            VALUES ($1, $2, 1, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
                             """,
                             memory_id,
                             lineage_id,
@@ -337,6 +385,7 @@ class MemoryApplier:
                             status,
                             event_id,
                             now,
+                            valid_from,
                         )
 
                         # Initialize memory_signals
@@ -498,6 +547,7 @@ class MemoryApplier:
                         "type": m_type,
                         "epistemic": epistemic,
                         "verified": is_verified,
+                        "valid_from": valid_from.isoformat() if valid_from else None,
                     })
 
                 # 6. Inter-memory relations

@@ -8,6 +8,7 @@ from __future__ import annotations
 import uuid
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
@@ -52,20 +53,24 @@ async def extract_and_apply(
     request: Request,
     pool=Depends(get_db_pool),
 ):
-    # 1. Fetch content and context if not provided
+    # 1. Fetch content, context, and occurred_at if not provided
     content = req.content
     context_id = None
+    event_occurred_at = None
     async with pool.acquire() as conn:
-        if not content:
-            ev_row = await conn.fetchrow(
-                "SELECT content, context_id FROM events WHERE id = $1",
-                req.event_id,
-            )
-            if not ev_row:
-                raise HTTPException(status_code=404, detail=f"Event {req.event_id} not found")
-            content = ev_row["content"]
+        ev_row = await conn.fetchrow(
+            "SELECT content, context_id, occurred_at FROM events WHERE id = $1",
+            req.event_id,
+        )
+        if ev_row:
+            if not content:
+                content = ev_row["content"]
             context_id = ev_row["context_id"]
-        else:
+            event_occurred_at = ev_row["occurred_at"]
+        elif not content:
+            raise HTTPException(status_code=404, detail=f"Event {req.event_id} not found")
+
+        if not context_id:
             ctx_row = await conn.fetchrow(
                 "SELECT id FROM contexts WHERE slug = $1",
                 req.context,
@@ -75,13 +80,21 @@ async def extract_and_apply(
     if not context_id:
         raise HTTPException(status_code=400, detail=f"Could not resolve context: {req.context}")
 
+    # Determine captured_at: defaults to event's occurred_at or now
+    if req.captured_at:
+        captured_at_str = req.captured_at
+    elif event_occurred_at:
+        captured_at_str = event_occurred_at.isoformat()
+    else:
+        captured_at_str = datetime.now(timezone.utc).isoformat()
+
     # 2. Run structured LLM extraction with dead-letter staging on failure
     extractor = MemoryExtractor()
     try:
         extraction_data = await extractor.extract(
             text=content,
             speaker=req.speaker,
-            captured_at=req.captured_at or "2026-11-21T10:00:00+05:30",
+            captured_at=captured_at_str,
             tz=req.tz,
         )
     except ExtractionError as exc:

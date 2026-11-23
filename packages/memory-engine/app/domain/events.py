@@ -25,6 +25,7 @@ class CaptureRequest(BaseModel):
     source: SourceInfo = Field(default_factory=SourceInfo)
     context: str = "default"
     occurred_at: datetime | None = None
+    recorded_at: datetime | None = None
     idempotency_key: str | None = None
 
 

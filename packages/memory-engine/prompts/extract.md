@@ -18,7 +18,7 @@ Rules:
 9. cardinality "one" only when the subject can have exactly one value at a time (primary_database, lives_in, deadline). Preferences, tools, likes are "many".
 10. polarity false for negations ("does not use Docker").
 11. change_cue true when the text signals a change: "now", "switched", "no longer", "actually", "instead", "from now on", "moved to".
-12. Dates: resolve relative dates against CAPTURED_AT {captured_at} ({tz}); ISO-8601 with offset.
+12. Dates: resolve relative dates against CAPTURED_AT {captured_at} ({tz}); ISO-8601 with offset. If relative temporal anchor phrases are present ("since March", "last week", "as of yesterday"), set valid_from_text.
 13. Skip greetings, filler, and questions to the assistant that contain no information.
 14. confidence = how sure the text makes it (hedges lower it). importance: 0.2 trivia, 0.5 normal, 0.8 decisions/constraints/goals, 1.0 safety or identity.
 15. relations: only between memories in THIS output, using their refs (m1, m2 ...).

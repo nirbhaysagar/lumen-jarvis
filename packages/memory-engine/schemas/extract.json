@@ -39,6 +39,7 @@
           "object_value": {"type": ["string", "number", "boolean", "null"]},
           "cardinality": {"enum": ["one", "many"]},
           "polarity": {"type": "boolean"},
+          "valid_from_text": {"type": ["string", "null"]},
           "valid_from": {"type": ["string", "null"], "format": "date-time"},
           "valid_to": {"type": ["string", "null"], "format": "date-time"},
           "evidence": {

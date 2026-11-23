@@ -11,6 +11,7 @@ import re
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from datetime import datetime, timezone
 import jsonschema
 
 from app.core.config import settings
@@ -256,7 +257,7 @@ class MemoryExtractor:
         source_kind: str = "chat",
         source_title: str = "chat utterance",
         source_author: str = "user",
-        captured_at: str = "2026-11-21T10:00:00+05:30",
+        captured_at: Optional[str] = None,
         tz: str = "+05:30",
         context_memories: str = "none",
     ) -> dict[str, Any]:
@@ -264,6 +265,8 @@ class MemoryExtractor:
         Executes structured extraction using OllamaClient with format=_SCHEMA.
         Raises ExtractionError on failure or truncation.
         """
+        if not captured_at:
+            captured_at = datetime.now(timezone.utc).isoformat()
         start_time = time.monotonic()
         system_content = _SYSTEM_PROMPT.format(
             speaker=speaker,
