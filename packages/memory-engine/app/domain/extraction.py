@@ -8,12 +8,14 @@ import json
 import logging
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import jsonschema
-from litellm import acompletion
 
 from app.core.config import settings
+from app.domain.errors import ExtractionError
+from app.adapters.llm.ollama_client import OllamaClient
 
 logger = logging.getLogger("lumen.memory.extraction")
 
@@ -49,7 +51,7 @@ _ALLOWED_RELATION_KEYS = {"type", "to"}
 def _normalize_parsed(data: Any) -> dict[str, Any]:
     """Coerces LLM quirks (e.g. entity.type -> entity.kind, raw name for subject/object, extra metadata) to conform strictly to schema."""
     if not isinstance(data, dict):
-        return {"entities": [], "memories": []}
+        raise ValueError("Parsed data must be a dictionary object")
 
     # Handle singular aliases: "memory" -> "memories", "entity" -> "entities"
     if ("memories" not in data or not data["memories"]) and "memory" in data:
@@ -237,23 +239,15 @@ class MemoryExtractor:
     def __init__(
         self,
         model: Optional[str] = None,
-        api_base: Optional[str] = None,
+        client: Optional[OllamaClient] = None,
+        base_url: Optional[str] = None,
     ):
-        # Model selection: defaults to local Ollama when PREFER_LOCAL_MODELS is true
-        if model:
-            self.model = model
-        elif os.getenv("LUMEN_EXTRACTION_MODEL"):
-            self.model = os.getenv("LUMEN_EXTRACTION_MODEL")
-        elif settings.PREFER_LOCAL_MODELS:
-            self.model = f"ollama/{settings.LUMEN_LLM_MODEL}"
-        elif os.getenv("OPENAI_API_KEY"):
-            self.model = "gpt-4o-mini"
-        elif os.getenv("GROQ_API_KEY"):
-            self.model = "groq/qwen/qwen3.8-27b"
-        else:
-            self.model = f"ollama/{settings.LUMEN_LLM_MODEL}"
-
-        self.api_base = api_base or (settings.OLLAMA_BASE_URL if self.model.startswith("ollama/") else None)
+        raw_model = model or os.getenv("LUMEN_EXTRACTION_MODEL") or settings.LUMEN_LLM_MODEL
+        if raw_model.startswith("ollama/"):
+            raw_model = raw_model.replace("ollama/", "", 1)
+        self.model = raw_model
+        ollama_url = base_url or settings.OLLAMA_BASE_URL
+        self.client = client or OllamaClient(base_url=ollama_url)
 
     async def extract(
         self,
@@ -267,9 +261,10 @@ class MemoryExtractor:
         context_memories: str = "none",
     ) -> dict[str, Any]:
         """
-        Executes structured extraction. Validates with jsonschema.
-        Retries once with validator error if schema is violated.
+        Executes structured extraction using OllamaClient with format=_SCHEMA.
+        Raises ExtractionError on failure or truncation.
         """
+        start_time = time.monotonic()
         system_content = _SYSTEM_PROMPT.format(
             speaker=speaker,
             captured_at=captured_at,
@@ -292,96 +287,115 @@ class MemoryExtractor:
             {"role": "user", "content": user_content},
         ]
 
-        # Call LLM with JSON format
-        kwargs: dict[str, Any] = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": 0.0,
-            "max_tokens": 450,
-            "response_format": {"type": "json_object"},
-        }
-        if self.api_base:
-            kwargs["api_base"] = self.api_base
+        options = {"temperature": 0.0, "num_predict": 2048, "num_ctx": 8192}
 
-        raw_resp = None
-        for attempt in range(5):
-            try:
-                raw_resp = await acompletion(**kwargs)
-                break
-            except Exception as e:
-                err_msg = str(e).lower()
-                if "rate limit" in err_msg or "429" in err_msg or "tokens per minute" in err_msg:
-                    import re, asyncio
-                    m_sec = re.search(r"try again in ([\d\.]+)\s*(m?s)", str(e))
-                    if m_sec:
-                        val = float(m_sec.group(1))
-                        wait_sec = (val / 1000.0 if m_sec.group(2) == "ms" else val) + 1.5
-                    else:
-                        wait_sec = 12.0
-                    logger.warning(f"Rate limit encountered on {self.model}. Waiting {wait_sec:.1f}s before retry {attempt+1}/5...")
-                    await asyncio.sleep(wait_sec)
-                else:
-                    logger.error(f"LLM extraction error: {e}")
-                    raise
+        # 1. Primary extraction call
+        try:
+            resp = await self.client.chat(
+                model=self.model,
+                messages=messages,
+                format=_SCHEMA,
+                options=options,
+            )
+        except Exception as e:
+            latency_ms = int((time.monotonic() - start_time) * 1000)
+            raise ExtractionError("llm_error", f"Ollama connection error: {e}", raw="", attempt=1, latency_ms=latency_ms) from e
 
-        if not raw_resp:
-            return {"entities": [], "memories": []}
+        content = resp.get("content", "")
+        done_reason = resp.get("done_reason")
+        latency_ms = int((time.monotonic() - start_time) * 1000)
 
-        raw_text = raw_resp.choices[0].message.content or "{}"
+        # 2. Truncation detection
+        if done_reason == "length":
+            raise ExtractionError("truncated", "Output truncated by num_predict=2048 token limit", raw=content, attempt=1, latency_ms=latency_ms)
 
-        # Clean potential markdown fences
-        clean_json = raw_text.strip()
+        # 3. Clean and parse JSON
+        clean_json = content.strip()
         if clean_json.startswith("```"):
             clean_json = clean_json.split("\n", 1)[1]
             if clean_json.endswith("```"):
                 clean_json = clean_json.rsplit("```", 1)[0]
             clean_json = clean_json.strip()
 
+        parsed = None
         try:
-            parsed = json.loads(clean_json)
-            parsed = _normalize_parsed(parsed)
-        except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse extraction JSON: {e}. Raw: {clean_json[:200]}")
-            return {"entities": [], "memories": []}
+            raw_parsed = json.loads(clean_json)
+            if not isinstance(raw_parsed, dict):
+                raise ValueError("Extracted JSON root must be a dictionary object")
+            parsed = _normalize_parsed(raw_parsed)
+        except Exception as json_err:
+            logger.info(f"Initial JSON parse failed: {json_err}. Attempting repair prompt...")
+            # Repair attempt
+            messages.append({"role": "assistant", "content": clean_json})
+            messages.append({
+                "role": "user",
+                "content": f"Your previous output was not valid JSON ({json_err}). Fix and return ONLY valid JSON matching the schema."
+            })
+            try:
+                repair_resp = await self.client.chat(
+                    model=self.model,
+                    messages=messages,
+                    format=_SCHEMA,
+                    options=options,
+                )
+            except Exception as e:
+                latency_ms = int((time.monotonic() - start_time) * 1000)
+                raise ExtractionError("llm_error", f"Repair chat failed: {e}", raw=clean_json, attempt=2, latency_ms=latency_ms) from e
 
-        # Validate against schema
+            repair_content = repair_resp.get("content", "").strip()
+            if repair_resp.get("done_reason") == "length":
+                latency_ms = int((time.monotonic() - start_time) * 1000)
+                raise ExtractionError("truncated", "Repair output truncated by token limit", raw=repair_content, attempt=2, latency_ms=latency_ms)
+
+            if repair_content.startswith("```"):
+                repair_content = repair_content.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+
+            try:
+                re_parsed = json.loads(repair_content)
+                if not isinstance(re_parsed, dict):
+                    raise ValueError("Extracted JSON root must be a dictionary object")
+                parsed = _normalize_parsed(re_parsed)
+                clean_json = repair_content
+            except Exception as re_err:
+                latency_ms = int((time.monotonic() - start_time) * 1000)
+                raise ExtractionError("json_decode", f"Invalid JSON on retry: {re_err}", raw=repair_content, attempt=2, latency_ms=latency_ms) from re_err
+
+        # 4. Schema validation with repair retry
         try:
             jsonschema.validate(instance=parsed, schema=_SCHEMA)
             return parsed
         except jsonschema.ValidationError as val_err:
             logger.info(f"Schema validation error on first attempt: {val_err.message}. Retrying once...")
-            # Retry once with error feedback
             messages.append({"role": "assistant", "content": clean_json})
             messages.append({
                 "role": "user",
                 "content": f"Your output violated the JSON schema at {list(val_err.path)}: {val_err.message}. Fix and return ONLY valid JSON."
             })
-            retry_resp = None
-            for r_attempt in range(5):
-                try:
-                    retry_resp = await acompletion(**kwargs)
-                    break
-                except Exception as e:
-                    err_msg = str(e).lower()
-                    if "rate limit" in err_msg or "429" in err_msg or "tokens per minute" in err_msg:
-                        import re, asyncio
-                        m_sec = re.search(r"try again in ([\d\.]+)\s*(m?s)", str(e))
-                        wait_sec = (float(m_sec.group(1)) / 1000.0 if m_sec and m_sec.group(2) == "ms" else (float(m_sec.group(1)) if m_sec else 12.0)) + 1.5
-                        await asyncio.sleep(wait_sec)
-                    else:
-                        break
-
-            if not retry_resp:
-                return {"entities": [], "memories": []}
-
-            retry_text = retry_resp.choices[0].message.content or "{}"
-            if retry_text.startswith("```"):
-                retry_text = retry_text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
             try:
-                re_parsed = json.loads(retry_text)
+                retry_resp = await self.client.chat(
+                    model=self.model,
+                    messages=messages,
+                    format=_SCHEMA,
+                    options=options,
+                )
+            except Exception as e:
+                latency_ms = int((time.monotonic() - start_time) * 1000)
+                raise ExtractionError("llm_error", f"Schema retry chat failed: {e}", raw=clean_json, attempt=2, latency_ms=latency_ms) from e
+
+            retry_content = retry_resp.get("content", "").strip()
+            if retry_resp.get("done_reason") == "length":
+                latency_ms = int((time.monotonic() - start_time) * 1000)
+                raise ExtractionError("truncated", "Schema retry truncated by token limit", raw=retry_content, attempt=2, latency_ms=latency_ms)
+
+            if retry_content.startswith("```"):
+                retry_content = retry_content.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+
+            try:
+                re_parsed = json.loads(retry_content)
                 re_parsed = _normalize_parsed(re_parsed)
                 jsonschema.validate(instance=re_parsed, schema=_SCHEMA)
                 return re_parsed
             except Exception as e:
-                logger.error(f"Second extraction attempt also failed schema: {e}")
-                return {"entities": [], "memories": []}
+                latency_ms = int((time.monotonic() - start_time) * 1000)
+                raise ExtractionError("schema", f"Schema validation failed after retry: {e}", raw=retry_content, attempt=2, latency_ms=latency_ms) from e
+

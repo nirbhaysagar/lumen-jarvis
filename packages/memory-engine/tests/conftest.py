@@ -57,7 +57,7 @@ async def clean_test_db():
                 sources, events, chunks, entities, entity_aliases, 
                 memories, claims, citations, memory_relations, 
                 abstractions, abstraction_sources, memory_signals, 
-                retrieval_traces, review_queue, outbox, jobs,
+                retrieval_traces, review_queue, extraction_attempts, outbox, jobs,
                 facts, triples, predicates, memory_outbox
             CASCADE;
             """

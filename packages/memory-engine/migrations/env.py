@@ -1,10 +1,13 @@
 import os
 from logging.config import fileConfig
+from dotenv import load_dotenv
 
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
 from alembic import context
+
+load_dotenv()
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -23,16 +26,22 @@ target_metadata = None
 
 
 def get_url() -> str:
-    env_url = os.getenv("LUMEN_DATABASE_URL") or os.getenv("DATABASE_URL")
-    if env_url:
-        if env_url.startswith("postgres://"):
-            env_url = env_url.replace("postgres://", "postgresql://", 1)
-        elif env_url.startswith("postgresql+asyncpg://"):
-            env_url = env_url.replace("postgresql+asyncpg://", "postgresql://", 1)
-        return env_url
-
     is_test = os.getenv("LUMEN_ENV") == "test"
-    db_name = "lumen_memory_test" if is_test else "lumen_memory"
+    if is_test:
+        env_url = os.getenv("LUMEN_TEST_DATABASE_URL")
+        if env_url:
+            return env_url
+        db_name = "lumen_memory_test"
+    else:
+        env_url = os.getenv("LUMEN_DATABASE_URL") or os.getenv("DATABASE_URL")
+        if env_url:
+            if env_url.startswith("postgres://"):
+                env_url = env_url.replace("postgres://", "postgresql://", 1)
+            elif env_url.startswith("postgresql+asyncpg://"):
+                env_url = env_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+            return env_url
+        db_name = os.getenv("POSTGRES_DB", "lumen_memory")
+
     pg_user = os.getenv("POSTGRES_USER", "lumen")
     pg_pass = os.getenv("POSTGRES_PASSWORD", "")
     pg_host = os.getenv("POSTGRES_HOST", "localhost")
