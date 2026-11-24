@@ -494,6 +494,95 @@ async def list_retrieval_traces(
         return results
 
 
+@router.get("/graph")
+async def get_viewer_graph(
+    pool: asyncpg.Pool = Depends(get_db_pool),
+) -> dict[str, Any]:
+    """Returns nodes and links representing the in-built knowledge graph."""
+    async with pool.acquire() as conn:
+        # 1. Entities
+        e_rows = await conn.fetch("SELECT id, canonical_name, kind, aliases FROM entities")
+        nodes = []
+        links = []
+        node_ids = set()
+
+        for r in e_rows:
+            eid = f"e_{r['id']}"
+            nodes.append({
+                "id": eid,
+                "raw_id": str(r["id"]),
+                "label": r["canonical_name"],
+                "type": "entity",
+                "kind": r["kind"] or "concept",
+                "aliases": r.get("aliases") or [],
+            })
+            node_ids.add(eid)
+
+        # 2. Active Memories
+        m_rows = await conn.fetch(
+            """
+            SELECT id, lineage_id, statement, subject_id, object_id, lane, sensitivity, confidence
+            FROM memories
+            WHERE status = 'active'
+            """
+        )
+        for m in m_rows:
+            mid = f"m_{m['id']}"
+            nodes.append({
+                "id": mid,
+                "raw_id": str(m["id"]),
+                "label": m["statement"],
+                "type": "memory",
+                "lane": m["lane"],
+                "sensitivity": m["sensitivity"],
+                "confidence": float(m["confidence"]),
+            })
+            node_ids.add(mid)
+
+            if m.get("subject_id"):
+                sub_node = f"e_{m['subject_id']}"
+                if sub_node in node_ids:
+                    links.append({"source": sub_node, "target": mid, "label": "SUBJECT"})
+            if m.get("object_id"):
+                obj_node = f"e_{m['object_id']}"
+                if obj_node in node_ids:
+                    links.append({"source": mid, "target": obj_node, "label": "OBJECT"})
+
+        # 3. Memory Relations
+        r_rows = await conn.fetch(
+            """
+            SELECT mr.from_memory, mr.type, mr.to_entity, mr.to_memory
+            FROM memory_relations mr
+            """
+        )
+        for r in r_rows:
+            f_mid = f"m_{r['from_memory']}"
+            if r.get("to_entity"):
+                t_eid = f"e_{r['to_entity']}"
+                if f_mid in node_ids and t_eid in node_ids:
+                    links.append({"source": f_mid, "target": t_eid, "label": r["type"]})
+            elif r.get("to_memory"):
+                t_mid = f"m_{r['to_memory']}"
+                if f_mid in node_ids and t_mid in node_ids:
+                    links.append({"source": f_mid, "target": t_mid, "label": r["type"]})
+
+        return {
+            "nodes": nodes,
+            "links": links,
+            "node_count": len(nodes),
+            "link_count": len(links),
+        }
+
+
+@router.post("/vault/rebuild")
+async def trigger_vault_rebuild(pool: asyncpg.Pool = Depends(get_db_pool)) -> dict[str, Any]:
+    """Triggers an on-demand deterministic rebuild of the in-built Knowledge Vault on disk."""
+    from app.vault.projector import VaultProjector
+    projector = VaultProjector(pool)
+    result = await projector.rebuild()
+    return {"status": "ok", "stats": result}
+
+
 @router.get("/review-queue")
 async def list_review_queue(
     status: Optional[str] = "open",

@@ -91,9 +91,23 @@ async def lifespan(app: FastAPI):
         worker = JobsWorker(pool=storage.pool, embedding_adapter=getattr(app.state, "embedding", None))
         await worker.start()
 
+    # 4. Optional In-Built Vault Watcher Service
+    vault_watcher = None
+    if os.getenv("LUMEN_VAULT_WATCHER") == "1":
+        try:
+            import asyncio
+            from app.vault.watcher import VaultWatcherService
+            vault_watcher = VaultWatcherService(pool=storage.pool, loop=asyncio.get_running_loop())
+            vault_watcher.start()
+        except Exception as e:
+            import logging
+            logging.getLogger("lumen.main").warning(f"Failed to start vault watcher: {e}")
+
     yield
 
     # Teardown
+    if vault_watcher:
+        vault_watcher.stop()
     if worker:
         await worker.stop()
     await storage.disconnect()
@@ -361,15 +375,18 @@ def cli():
     elif cmd == "vault":
         subcmd = args[1] if len(args) > 1 else ""
         if subcmd == "rebuild":
-            print("Rebuilding Obsidian vault projection...")
-            try:
-                from app.vault.projector import rebuild_vault
-                import asyncio
-                asyncio.run(rebuild_vault())
-            except ImportError:
-                print("Vault projector will be wired in Milestone O1.")
+            print("Rebuilding in-built Obsidian Knowledge Vault projection...")
+            from app.vault.projector import rebuild_vault
+            import asyncio
+            res = asyncio.run(rebuild_vault())
+            print(f"✅ Vault rebuild complete: {res['memories']} memories, {res['entities']} entities, {res['daily']} daily notes.")
+        elif subcmd == "watch":
+            print("Starting in-built Obsidian Knowledge Vault two-way file watcher...")
+            from app.vault.watcher import start_vault_watcher_cli
+            import asyncio
+            asyncio.run(start_vault_watcher_cli())
         else:
-            print("Usage: lumen-memory vault rebuild")
+            print("Usage: lumen-memory vault [rebuild|watch]")
     elif cmd == "mcp":
         print("Starting MCP server...")
         try:

@@ -138,6 +138,7 @@
 | pytest-asyncio            | 1.5.0      | Apache-2.0                                                                     |
 | python-dateutil           | 4.0.0      | BSD-3-Clause                                                                   |
 | python-dotenv             | 1.2.4      | BSD-3-Clause                                                                   |
+| python-frontmatter        | 1.3.0      | MIT                                                                            |
 | pytz                      | 2026.6     | MIT License                                                                    |
 | pyzmq                     | 27.3.0     | BSD-3-Clause                                                                   |
 | rank-bm25                 | 0.2.2      | Apache2.0                                                                      |
@@ -195,6 +196,7 @@
 | urllib3                   | 2.8.0      | MIT                                                                            |
 | uvicorn                   | 0.54.0     | BSD-3-Clause                                                                   |
 | uvloop                    | 0.23.0     | Apache Software License; MIT License                                           |
+| watchdog                  | 7.1.1      | Apache-2.0                                                                     |
 | watchfiles                | 1.3.0      | MIT License                                                                    |
 | websockets                | 17.4       | BSD-3-Clause                                                                   |
 | xxhash                    | 3.8.2      | BSD-2-Clause                                                                   |

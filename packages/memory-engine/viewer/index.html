@@ -767,6 +767,9 @@
         <button class="tab-btn" onclick="switchTab('retrieval')">
             <span>🎯</span> Retrieval Inspector
         </button>
+        <button class="tab-btn" onclick="switchTab('graph')">
+            <span>🕸️</span> Knowledge Graph
+        </button>
     </nav>
 
     <!-- Main Content Area -->
@@ -857,6 +860,38 @@
             <div style="font-size: 14px; font-weight: 600; color: var(--text); margin-top: 8px;">Recent Retrieval Traces (5-Channel RRF &amp; Reranker)</div>
             <div id="tracesList" class="memory-grid">
                 <div class="empty-state">Loading recent traces...</div>
+            </div>
+        </section>
+
+        <!-- TAB 5: Knowledge Graph & In-Built Vault -->
+        <section id="tab-graph" class="tab-pane">
+            <div class="filter-bar" style="justify-content: space-between;">
+                <div style="display: flex; gap: 12px; align-items: center; flex: 1;">
+                    <input type="text" id="graphSearchInput" class="search-input" placeholder="Search entity or memory node..." oninput="highlightGraphNode()">
+                    <span id="graphMetaLabel" style="font-size: 12px; color: var(--text-muted); font-family: monospace;">0 nodes • 0 edges</span>
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button class="action-btn" onclick="loadGraphData()">🔄 Reload Graph</button>
+                    <button class="action-btn btn-primary" onclick="triggerVaultRebuild()">📁 Rebuild Vault on Disk</button>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 340px; gap: 16px; min-height: 540px;">
+                <!-- Interactive Graph Canvas -->
+                <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center;">
+                    <canvas id="graphCanvas" style="width: 100%; height: 100%; cursor: grab;"></canvas>
+                    <div style="position: absolute; bottom: 12px; left: 16px; display: flex; gap: 12px; font-size: 11px; background: rgba(17,20,32,0.8); padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border);">
+                        <span style="color: #38bdf8;">● Entity Node</span>
+                        <span style="color: #a855f7;">● Memory Node</span>
+                        <span style="color: var(--text-muted);">Drag to pan • Scroll to zoom</span>
+                    </div>
+                </div>
+
+                <!-- Selected Node Inspector -->
+                <div id="graphInspector" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto;">
+                    <div style="font-size: 14px; font-weight: 600; color: var(--text);">Node Inspector</div>
+                    <div class="empty-state" style="padding: 24px;">Click any entity or memory node in the graph to inspect its properties, connections, and Obsidian vault note.</div>
+                </div>
             </div>
         </section>
 
@@ -1003,6 +1038,7 @@
             }
             else if (state.activeTab === "review") loadReviewQueue();
             else if (state.activeTab === "retrieval") loadRecentTraces();
+            else if (state.activeTab === "graph") loadGraphData();
         }
 
         // Token Management
@@ -1477,6 +1513,288 @@
                 `).join("");
             } catch (err) {
                 container.innerHTML = `<div class="empty-state" style="color: var(--danger)">Error loading traces: ${err.message}</div>`;
+            }
+        }
+
+        // 7. In-Built Knowledge Graph & Vault View
+        let graphState = {
+            nodes: [],
+            links: [],
+            selectedNode: null,
+            hoveredNode: null,
+            pan: { x: 0, y: 0 },
+            zoom: 1.0,
+            isDragging: false,
+            dragStart: { x: 0, y: 0 },
+            animId: null
+        };
+
+        async function loadGraphData() {
+            try {
+                const data = await apiFetch("/v1/viewer/graph");
+                document.getElementById("graphMetaLabel").textContent = `${data.node_count} nodes • ${data.link_count} edges`;
+                initGraphSimulation(data.nodes || [], data.links || []);
+            } catch (err) {
+                console.warn("Failed to load graph data", err);
+            }
+        }
+
+        async function triggerVaultRebuild() {
+            try {
+                showToast("Rebuilding Obsidian vault projection on disk...", "info");
+                const res = await apiFetch("/v1/viewer/vault/rebuild", { method: "POST" });
+                const stats = res.stats || {};
+                showToast(`Vault rebuilt: ${stats.memories} memories, ${stats.entities} entities written to disk.`, "success");
+                loadGraphData();
+            } catch (err) {
+                showToast(`Vault rebuild failed: ${err.message}`, "error");
+            }
+        }
+
+        function initGraphSimulation(rawNodes, rawLinks) {
+            const canvas = document.getElementById("graphCanvas");
+            if (!canvas) return;
+
+            const rect = canvas.parentElement.getBoundingClientRect();
+            canvas.width = rect.width * (window.devicePixelRatio || 1);
+            canvas.height = rect.height * (window.devicePixelRatio || 1);
+
+            const width = canvas.width / (window.devicePixelRatio || 1);
+            const height = canvas.height / (window.devicePixelRatio || 1);
+
+            // Initialize node positions in a circle around center
+            const nodeMap = new Map();
+            const nodes = rawNodes.map((n, i) => {
+                const angle = (i / Math.max(1, rawNodes.length)) * Math.PI * 2;
+                const radius = 120 + Math.random() * 80;
+                const node = {
+                    ...n,
+                    x: width / 2 + Math.cos(angle) * radius,
+                    y: height / 2 + Math.sin(angle) * radius,
+                    vx: 0,
+                    vy: 0,
+                    radius: n.type === 'entity' ? 12 : 8,
+                    color: n.type === 'entity' ? '#38bdf8' : (n.lane === 'code' ? '#34d399' : '#a855f7')
+                };
+                nodeMap.set(n.id, node);
+                return node;
+            });
+
+            const links = rawLinks.map(l => ({
+                source: nodeMap.get(l.source),
+                target: nodeMap.get(l.target),
+                label: l.label
+            })).filter(l => l.source && l.target);
+
+            graphState.nodes = nodes;
+            graphState.links = links;
+            graphState.pan = { x: 0, y: 0 };
+            graphState.zoom = 1.0;
+
+            setupCanvasEvents(canvas);
+
+            if (graphState.animId) cancelAnimationFrame(graphState.animId);
+            runGraphPhysics(canvas);
+        }
+
+        function runGraphPhysics(canvas) {
+            const ctx = canvas.getContext("2d");
+            const dpr = window.devicePixelRatio || 1;
+            const width = canvas.width / dpr;
+            const height = canvas.height / dpr;
+
+            function step() {
+                // Physics update
+                const nodes = graphState.nodes;
+                const links = graphState.links;
+
+                // Repulsion
+                for (let i = 0; i < nodes.length; i++) {
+                    for (let j = i + 1; j < nodes.length; j++) {
+                        const dx = nodes[j].x - nodes[i].x;
+                        const dy = nodes[j].y - nodes[i].y;
+                        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+                        if (dist < 260) {
+                            const force = (260 - dist) / dist * 0.4;
+                            nodes[i].vx -= dx * force * 0.05;
+                            nodes[i].vy -= dy * force * 0.05;
+                            nodes[j].vx += dx * force * 0.05;
+                            nodes[j].vy += dy * force * 0.05;
+                        }
+                    }
+                }
+
+                // Spring attraction along links
+                for (const l of links) {
+                    const dx = l.target.x - l.source.x;
+                    const dy = l.target.y - l.source.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+                    const force = (dist - 90) * 0.04;
+                    l.source.vx += (dx / dist) * force;
+                    l.source.vy += (dy / dist) * force;
+                    l.target.vx -= (dx / dist) * force;
+                    l.target.vy -= (dy / dist) * force;
+                }
+
+                // Center gravity and velocity damping
+                for (const n of nodes) {
+                    n.vx += (width / 2 - n.x) * 0.01;
+                    n.vy += (height / 2 - n.y) * 0.01;
+                    n.x += n.vx;
+                    n.y += n.vy;
+                    n.vx *= 0.85;
+                    n.vy *= 0.85;
+                }
+
+                // Render
+                ctx.save();
+                ctx.scale(dpr, dpr);
+                ctx.clearRect(0, 0, width, height);
+
+                ctx.translate(graphState.pan.x + width / 2, graphState.pan.y + height / 2);
+                ctx.scale(graphState.zoom, graphState.zoom);
+                ctx.translate(-width / 2, -height / 2);
+
+                // Draw links
+                ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
+                ctx.lineWidth = 1;
+                for (const l of links) {
+                    ctx.beginPath();
+                    ctx.moveTo(l.source.x, l.source.y);
+                    ctx.lineTo(l.target.x, l.target.y);
+                    ctx.stroke();
+                }
+
+                // Draw nodes
+                for (const n of nodes) {
+                    const isSelected = graphState.selectedNode && graphState.selectedNode.id === n.id;
+                    const isHovered = graphState.hoveredNode && graphState.hoveredNode.id === n.id;
+
+                    ctx.beginPath();
+                    ctx.arc(n.x, n.y, n.radius + (isSelected ? 4 : (isHovered ? 2 : 0)), 0, Math.PI * 2);
+                    ctx.fillStyle = n.color;
+                    ctx.shadowColor = n.color;
+                    ctx.shadowBlur = isSelected ? 16 : 8;
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+
+                    // Text labels
+                    ctx.fillStyle = isSelected ? "#fff" : "rgba(243, 244, 246, 0.75)";
+                    ctx.font = isSelected ? "bold 11px sans-serif" : "10px sans-serif";
+                    ctx.textAlign = "center";
+                    const displayLabel = n.label.length > 24 ? n.label.slice(0, 22) + "…" : n.label;
+                    ctx.fillText(displayLabel, n.x, n.y + n.radius + 14);
+                }
+
+                ctx.restore();
+                graphState.animId = requestAnimationFrame(step);
+            }
+            step();
+        }
+
+        function setupCanvasEvents(canvas) {
+            canvas.onmousedown = (e) => {
+                const rect = canvas.getBoundingClientRect();
+                const mx = e.clientX - rect.left;
+                const my = e.clientY - rect.top;
+
+                const clicked = findNodeAt(mx, my, canvas);
+                if (clicked) {
+                    selectGraphNode(clicked);
+                } else {
+                    graphState.isDragging = true;
+                    graphState.dragStart = { x: e.clientX - graphState.pan.x, y: e.clientY - graphState.pan.y };
+                }
+            };
+
+            window.onmousemove = (e) => {
+                if (graphState.isDragging) {
+                    graphState.pan.x = e.clientX - graphState.dragStart.x;
+                    graphState.pan.y = e.clientY - graphState.dragStart.y;
+                }
+            };
+
+            window.onmouseup = () => {
+                graphState.isDragging = false;
+            };
+
+            canvas.onwheel = (e) => {
+                e.preventDefault();
+                const delta = e.deltaY < 0 ? 1.1 : 0.9;
+                graphState.zoom = Math.max(0.3, Math.min(3.0, graphState.zoom * delta));
+            };
+        }
+
+        function findNodeAt(mx, my, canvas) {
+            const dpr = window.devicePixelRatio || 1;
+            const width = canvas.width / dpr;
+            const height = canvas.height / dpr;
+
+            const wx = (mx - graphState.pan.x - width / 2) / graphState.zoom + width / 2;
+            const wy = (my - graphState.pan.y - height / 2) / graphState.zoom + height / 2;
+
+            for (const n of graphState.nodes) {
+                const dx = n.x - wx;
+                const dy = n.y - wy;
+                if (dx * dx + dy * dy <= (n.radius + 6) * (n.radius + 6)) {
+                    return n;
+                }
+            }
+            return null;
+        }
+
+        function selectGraphNode(node) {
+            graphState.selectedNode = node;
+            const inspector = document.getElementById("graphInspector");
+            const isEntity = node.type === "entity";
+
+            inspector.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span class="badge" style="background: ${node.color}22; color: ${node.color}; border: 1px solid ${node.color}44;">
+                        ${isEntity ? 'Entity' : 'Memory'}
+                    </span>
+                    <span style="font-size: 11px; color: var(--text-muted); font-family: monospace;">${node.raw_id ? node.raw_id.slice(0, 8) : ''}</span>
+                </div>
+
+                <div style="font-size: 16px; font-weight: 600; color: var(--text); line-height: 1.4;">
+                    ${escapeHtml(node.label)}
+                </div>
+
+                ${isEntity ? `
+                    <div style="font-size: 12px; color: var(--text-secondary);">
+                        <strong>Kind:</strong> ${node.kind} • <strong>Aliases:</strong> ${(node.aliases || []).join(', ') || 'None'}
+                    </div>
+                    <div style="background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-size: 12px;">
+                        <strong>Obsidian Wikilink:</strong> <code style="color: var(--accent);">[[${escapeHtml(node.label)}]]</code>
+                    </div>
+                ` : `
+                    <div style="font-size: 12px; color: var(--text-secondary);">
+                        <strong>Lane:</strong> <span class="badge badge-lane-${node.lane}">${node.lane}</span>
+                        <strong>Sensitivity:</strong> ${node.sensitivity}
+                    </div>
+                    <div class="card-actions">
+                        <button class="action-btn btn-primary" onclick="inspectLineage('${node.raw_id}')">⏳ Time Travel</button>
+                    </div>
+                `}
+            `;
+        }
+
+        function highlightGraphNode() {
+            const q = document.getElementById("graphSearchInput").value.trim().toLowerCase();
+            if (!q) {
+                graphState.selectedNode = null;
+                return;
+            }
+            const match = graphState.nodes.find(n => n.label.toLowerCase().includes(q));
+            if (match) {
+                selectGraphNode(match);
+                // Center on matched node
+                const canvas = document.getElementById("graphCanvas");
+                const dpr = window.devicePixelRatio || 1;
+                const width = canvas.width / dpr;
+                const height = canvas.height / dpr;
+                graphState.pan.x = (width / 2 - match.x) * graphState.zoom;
+                graphState.pan.y = (height / 2 - match.y) * graphState.zoom;
             }
         }
 
