@@ -419,14 +419,14 @@ async def commit_pipeline_run(
             }
             rq_row = await conn.fetchrow(
                 """
-                INSERT INTO review_queue (kind, reason, proposal, memory_id)
+                INSERT INTO review_queue (kind, reason, proposal, memory_ids)
                 VALUES ($1, $2, $3, $4)
                 RETURNING id
                 """,
                 kind,
                 decision.reason,
                 json.dumps(proposal_data),
-                new_id,
+                [new_id],
             )
             if rq_row:
                 review_ids.append(rq_row["id"])

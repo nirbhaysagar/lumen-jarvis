@@ -12,7 +12,7 @@ from app.core.config import settings
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         # 1. Unconditionally public endpoints
-        if request.url.path == "/health":
+        if request.url.path in {"/health", "/viewer"} or request.url.path.startswith("/viewer/"):
             return await call_next(request)
 
         # 2. Public endpoints only when DEBUG is active

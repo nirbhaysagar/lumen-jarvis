@@ -1,0 +1,1505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lumen — Glass-Box Memory Viewer</title>
+    <style>
+        :root {
+            --bg: #090b10;
+            --surface: #111420;
+            --surface-elevated: #181d2e;
+            --border: #23293d;
+            --border-highlight: #3b4466;
+            --accent: #6366f1;
+            --accent-hover: #4f46e5;
+            --accent-glow: rgba(99, 102, 241, 0.25);
+            --text: #f3f4f6;
+            --text-secondary: #9ca3af;
+            --text-muted: #6b7280;
+            --success: #10b981;
+            --success-bg: rgba(16, 185, 129, 0.12);
+            --warning: #f59e0b;
+            --warning-bg: rgba(245, 158, 11, 0.12);
+            --danger: #ef4444;
+            --danger-bg: rgba(239, 68, 68, 0.12);
+            --lane-personal: #38bdf8;
+            --lane-work: #a855f7;
+            --lane-code: #34d399;
+            --lane-chat: #f472b6;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Top Header */
+        header {
+            background: rgba(17, 20, 32, 0.85);
+            backdrop-filter: blur(16px);
+            border-bottom: 1px solid var(--border);
+            padding: 14px 28px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .brand-icon {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, #6366f1, #a855f7);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            color: #fff;
+            box-shadow: 0 0 15px var(--accent-glow);
+        }
+
+        .brand-title {
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        .brand-badge {
+            background: var(--surface-elevated);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            font-size: 11px;
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-family: monospace;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .token-btn, .refresh-btn {
+            background: var(--surface-elevated);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            font-size: 13px;
+            padding: 7px 14px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .token-btn:hover, .refresh-btn:hover {
+            border-color: var(--border-highlight);
+            color: var(--text);
+        }
+
+        .token-configured {
+            border-color: var(--success);
+            color: var(--success);
+        }
+
+        /* Stats Bar */
+        .stats-bar {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            padding: 20px 28px;
+            background: var(--bg);
+        }
+
+        .stat-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::after {
+            content: "";
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 2px;
+            background: var(--accent);
+            opacity: 0.6;
+        }
+
+        .stat-card.warning::after { background: var(--warning); }
+        .stat-card.success::after { background: var(--success); }
+        .stat-card.info::after { background: #38bdf8; }
+
+        .stat-title {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+
+        .stat-val {
+            font-size: 26px;
+            font-weight: 700;
+            font-family: monospace;
+            color: var(--text);
+        }
+
+        .stat-sub {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        /* Navigation Tabs */
+        .tabs-nav {
+            display: flex;
+            gap: 8px;
+            padding: 0 28px;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+        }
+
+        .tab-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-weight: 600;
+            padding: 14px 18px;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .tab-btn:hover {
+            color: var(--text);
+        }
+
+        .tab-btn.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+        }
+
+        .tab-badge {
+            background: rgba(99, 102, 241, 0.15);
+            color: var(--accent);
+            font-size: 11px;
+            padding: 2px 7px;
+            border-radius: 10px;
+            font-family: monospace;
+        }
+
+        /* Main Workspace Container */
+        main {
+            flex: 1;
+            padding: 24px 28px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .tab-pane {
+            display: none;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .tab-pane.active {
+            display: flex;
+        }
+
+        /* Controls / Filter Bar */
+        .filter-bar {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 14px 18px;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .search-input {
+            flex: 1;
+            min-width: 240px;
+            background: var(--surface-elevated);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 9px 14px;
+            color: var(--text);
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .search-input:focus {
+            border-color: var(--accent);
+        }
+
+        .select-filter {
+            background: var(--surface-elevated);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 9px 14px;
+            color: var(--text);
+            font-size: 13px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        /* Badges & Tags */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 11px;
+            font-weight: 600;
+            padding: 3px 8px;
+            border-radius: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .badge-lane-personal { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
+        .badge-lane-work { background: rgba(168, 85, 247, 0.15); color: #a855f7; border: 1px solid rgba(168, 85, 247, 0.3); }
+        .badge-lane-code { background: rgba(52, 211, 153, 0.15); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.3); }
+        .badge-lane-chat { background: rgba(244, 114, 182, 0.15); color: #f472b6; border: 1px solid rgba(244, 114, 182, 0.3); }
+
+        .badge-status-active { background: var(--success-bg); color: var(--success); border: 1px solid rgba(16, 185, 129, 0.3); }
+        .badge-status-superseded { background: rgba(156, 163, 175, 0.12); color: var(--text-secondary); border: 1px solid var(--border); }
+        .badge-status-retracted, .badge-status-tombstoned { background: var(--danger-bg); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.3); }
+        .badge-status-pending, .badge-status-pending_review { background: var(--warning-bg); color: var(--warning); border: 1px solid rgba(245, 158, 11, 0.3); }
+
+        .badge-sensitivity-normal { color: var(--text-secondary); }
+        .badge-sensitivity-private { background: rgba(245, 158, 11, 0.15); color: var(--warning); border: 1px solid rgba(245, 158, 11, 0.3); }
+        .badge-sensitivity-secret { background: var(--danger-bg); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.3); font-weight: 700; }
+
+        /* Memory Cards List */
+        .memory-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .memory-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 18px 22px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            transition: all 0.2s;
+        }
+
+        .memory-card:hover {
+            border-color: var(--border-highlight);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .card-badges {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .card-meta {
+            font-size: 12px;
+            color: var(--text-muted);
+            font-family: monospace;
+        }
+
+        .statement-text {
+            font-size: 16px;
+            line-height: 1.5;
+            color: var(--text);
+            font-weight: 500;
+        }
+
+        .statement-text.secret-redacted {
+            font-family: monospace;
+            color: var(--danger);
+            font-style: italic;
+        }
+
+        .card-entities {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .entity-pill {
+            background: var(--surface-elevated);
+            padding: 2px 8px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            color: var(--text);
+            font-family: monospace;
+        }
+
+        .card-signals {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            padding-top: 4px;
+            border-top: 1px solid rgba(255, 255, 255, 0.04);
+        }
+
+        .signal-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .card-citations {
+            background: var(--surface-elevated);
+            border-radius: 8px;
+            padding: 10px 14px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            border-left: 3px solid var(--accent);
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .citation-quote {
+            font-style: italic;
+            color: var(--text);
+        }
+
+        .card-actions {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 8px;
+            margin-top: 4px;
+        }
+
+        .action-btn {
+            background: var(--surface-elevated);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 600;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .action-btn:hover {
+            border-color: var(--border-highlight);
+            color: var(--text);
+        }
+
+        .action-btn.btn-danger:hover {
+            border-color: var(--danger);
+            color: var(--danger);
+        }
+
+        .action-btn.btn-primary {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #fff;
+        }
+
+        .action-btn.btn-primary:hover {
+            background: var(--accent-hover);
+        }
+
+        .action-btn.btn-success {
+            background: var(--success);
+            border-color: var(--success);
+            color: #fff;
+        }
+
+        /* Lineage Time Travel View */
+        .lineage-container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .timeline-stream {
+            position: relative;
+            padding-left: 36px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .timeline-stream::before {
+            content: "";
+            position: absolute;
+            left: 12px;
+            top: 10px;
+            bottom: 10px;
+            width: 2px;
+            background: var(--border);
+        }
+
+        .timeline-node {
+            position: relative;
+        }
+
+        .timeline-dot {
+            position: absolute;
+            left: -30px;
+            top: 18px;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: var(--surface);
+            border: 3px solid var(--accent);
+        }
+
+        .timeline-node.current .timeline-dot {
+            border-color: var(--success);
+            background: var(--success);
+            box-shadow: 0 0 10px var(--success);
+        }
+
+        .diff-added {
+            background: rgba(16, 185, 129, 0.2);
+            color: #34d399;
+            padding: 1px 4px;
+            border-radius: 4px;
+        }
+
+        .diff-removed {
+            background: rgba(239, 68, 68, 0.2);
+            color: #f87171;
+            text-decoration: line-through;
+            padding: 1px 4px;
+            border-radius: 4px;
+        }
+
+        /* Review Queue Table / Cards */
+        .review-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .review-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .review-reason {
+            font-size: 14px;
+            color: var(--warning);
+            background: var(--warning-bg);
+            border: 1px solid rgba(245, 158, 11, 0.2);
+            padding: 8px 12px;
+            border-radius: 8px;
+        }
+
+        .review-proposal-box {
+            background: var(--surface-elevated);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 14px;
+            font-family: monospace;
+            font-size: 13px;
+            white-space: pre-wrap;
+            max-height: 250px;
+            overflow-y: auto;
+        }
+
+        /* Retrieval Inspector */
+        .retrieval-query-box {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .query-input-row {
+            display: flex;
+            gap: 12px;
+        }
+
+        .query-results-area {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .channel-breakdown {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            background: var(--surface-elevated);
+            border-radius: 8px;
+            padding: 12px;
+        }
+
+        .channel-chip {
+            padding: 6px 10px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 12px;
+            font-family: monospace;
+        }
+
+        /* Modal Dialog */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 20px;
+        }
+
+        .modal-overlay.open {
+            display: flex;
+        }
+
+        .modal-card {
+            background: var(--surface);
+            border: 1px solid var(--border-highlight);
+            border-radius: 16px;
+            padding: 28px;
+            max-width: 560px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        .modal-title {
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .form-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+        }
+
+        .form-input, .form-textarea, .form-select {
+            background: var(--surface-elevated);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 14px;
+            color: var(--text);
+            font-size: 14px;
+            outline: none;
+        }
+
+        .form-input:focus, .form-textarea:focus, .form-select:focus {
+            border-color: var(--accent);
+        }
+
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            margin-top: 8px;
+        }
+
+        /* Toast notifications */
+        .toast-container {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 2000;
+        }
+
+        .toast {
+            background: var(--surface-elevated);
+            border: 1px solid var(--border-highlight);
+            padding: 12px 18px;
+            border-radius: 8px;
+            font-size: 13px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+            animation: fadeIn 0.2s ease-out;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .toast.success { border-color: var(--success); color: var(--success); }
+        .toast.error { border-color: var(--danger); color: var(--danger); }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Empty state */
+        .empty-state {
+            padding: 48px;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 14px;
+            background: var(--surface);
+            border: 1px dashed var(--border);
+            border-radius: 12px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <header>
+        <div class="brand">
+            <div class="brand-icon">L</div>
+            <div class="brand-title">Lumen Memory Viewer</div>
+            <div class="brand-badge">Phase 1 • Glass-Box</div>
+        </div>
+        <div class="header-actions">
+            <button id="tokenBtn" class="token-btn" onclick="openTokenModal()">
+                <span>🔑</span> <span id="tokenLabel">Set Token</span>
+            </button>
+            <button class="refresh-btn" onclick="refreshCurrentView()">
+                <span>🔄</span> Refresh
+            </button>
+        </div>
+    </header>
+
+    <!-- Top Stats Bar -->
+    <section class="stats-bar">
+        <div class="stat-card">
+            <div class="stat-title">Active Memories</div>
+            <div class="stat-val" id="statActive">-</div>
+            <div class="stat-sub">Immutable facts &amp; beliefs</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-title">Lineages</div>
+            <div class="stat-val" id="statLineages">-</div>
+            <div class="stat-sub">Evolutionary version chains</div>
+        </div>
+        <div class="stat-card warning">
+            <div class="stat-title">Review Queue</div>
+            <div class="stat-val" id="statReviews">-</div>
+            <div class="stat-sub">Tier B staged contradictions</div>
+        </div>
+        <div class="stat-card info">
+            <div class="stat-title">Outbox Queued</div>
+            <div class="stat-val" id="statOutbox">-</div>
+            <div class="stat-sub">Pending event bus dispatches</div>
+        </div>
+        <div class="stat-card success">
+            <div class="stat-title">Active Lanes</div>
+            <div class="stat-val" id="statLanes" style="font-size: 15px; margin-top: 4px;">-</div>
+            <div class="stat-sub">Personal / Work / Code / Chat</div>
+        </div>
+    </section>
+
+    <!-- Navigation Tabs -->
+    <nav class="tabs-nav">
+        <button class="tab-btn active" onclick="switchTab('explorer')">
+            <span>📋</span> Live Memory Explorer
+        </button>
+        <button class="tab-btn" onclick="switchTab('lineage')">
+            <span>⏳</span> Lineage Time Travel
+        </button>
+        <button class="tab-btn" onclick="switchTab('review')">
+            <span>⚖️</span> Review Queue <span id="tabReviewBadge" class="tab-badge" style="display:none">0</span>
+        </button>
+        <button class="tab-btn" onclick="switchTab('retrieval')">
+            <span>🎯</span> Retrieval Inspector
+        </button>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main>
+
+        <!-- TAB 1: Live Memory Explorer -->
+        <section id="tab-explorer" class="tab-pane active">
+            <div class="filter-bar">
+                <input type="text" id="memSearch" class="search-input" placeholder="Search memory statements or citations..." oninput="debounceMemSearch()">
+                
+                <select id="filterLane" class="select-filter" onchange="loadMemories()">
+                    <option value="">All Lanes</option>
+                    <option value="personal">Personal</option>
+                    <option value="work">Work</option>
+                    <option value="code">Code</option>
+                    <option value="chat">Chat</option>
+                </select>
+
+                <select id="filterStatus" class="select-filter" onchange="loadMemories()">
+                    <option value="active">Active Only</option>
+                    <option value="all">All Statuses</option>
+                    <option value="superseded">Superseded</option>
+                    <option value="tombstoned">Tombstoned / Retracted</option>
+                    <option value="pending_review">Pending Review</option>
+                </select>
+
+                <select id="filterSensitivity" class="select-filter" onchange="loadMemories()">
+                    <option value="">All Sensitivities</option>
+                    <option value="normal">Normal</option>
+                    <option value="private">Private</option>
+                    <option value="secret">Secret</option>
+                </select>
+
+                <div style="font-size: 12px; color: var(--text-muted); font-family: monospace;" id="memCountLabel">
+                    0 memories
+                </div>
+            </div>
+
+            <div id="memoriesList" class="memory-grid">
+                <!-- Injected by JS -->
+                <div class="empty-state">Loading memories from Lumen engine...</div>
+            </div>
+        </section>
+
+        <!-- TAB 2: Lineage Time Travel -->
+        <section id="tab-lineage" class="tab-pane">
+            <div class="filter-bar">
+                <input type="text" id="lineageSearchId" class="search-input" placeholder="Enter Lineage UUID (e.g. 550e8400-e29b-41d4-a716-446655440000)...">
+                <button class="action-btn btn-primary" onclick="loadLineageHistory()">Inspect Lineage</button>
+            </div>
+
+            <div id="lineageContent" class="lineage-container">
+                <div class="empty-state">Enter a Lineage ID above or click "Time Travel" on any memory card.</div>
+            </div>
+        </section>
+
+        <!-- TAB 3: Review Queue -->
+        <section id="tab-review" class="tab-pane">
+            <div class="filter-bar">
+                <select id="filterReviewStatus" class="select-filter" onchange="loadReviewQueue()">
+                    <option value="open">Pending / Open</option>
+                    <option value="all">All Proposals</option>
+                    <option value="accepted">Accepted / Approved</option>
+                    <option value="rejected">Rejected</option>
+                </select>
+                <div style="font-size: 12px; color: var(--text-muted); font-family: monospace;" id="reviewCountLabel">
+                    0 proposals
+                </div>
+            </div>
+
+            <div id="reviewList" class="memory-grid">
+                <!-- Injected by JS -->
+                <div class="empty-state">No pending items in review queue.</div>
+            </div>
+        </section>
+
+        <!-- TAB 4: Retrieval Inspector -->
+        <section id="tab-retrieval" class="tab-pane">
+            <div class="retrieval-query-box">
+                <div style="font-size: 14px; font-weight: 600; color: var(--text);">Simulate Retrieval &amp; Cross-Encoder Reranking</div>
+                <div class="query-input-row">
+                    <input type="text" id="retrievalQueryInput" class="search-input" placeholder="Enter user prompt or query (e.g. Where does Alice work?)...">
+                    <button class="action-btn btn-primary" onclick="executeTestRetrieval()">Run Retrieval</button>
+                </div>
+                <div id="retrievalContextResults" class="query-results-area" style="display:none;"></div>
+            </div>
+
+            <div style="font-size: 14px; font-weight: 600; color: var(--text); margin-top: 8px;">Recent Retrieval Traces (5-Channel RRF &amp; Reranker)</div>
+            <div id="tracesList" class="memory-grid">
+                <div class="empty-state">Loading recent traces...</div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Modal: API Token Config -->
+    <div id="tokenModal" class="modal-overlay">
+        <div class="modal-card">
+            <div class="modal-title">Lumen API Authorization</div>
+            <div class="form-group">
+                <label class="form-label">Bearer Token (LUMEN_MEMORY_TOKEN)</label>
+                <input type="password" id="tokenInput" class="form-input" placeholder="Paste your bearer token...">
+                <span style="font-size: 11px; color: var(--text-muted);">Stored securely in browser localStorage.</span>
+            </div>
+            <div class="modal-footer">
+                <button class="action-btn" onclick="closeTokenModal()">Cancel</button>
+                <button class="action-btn btn-primary" onclick="saveToken()">Save &amp; Connect</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Edit / Correct Memory -->
+    <div id="editModal" class="modal-overlay">
+        <div class="modal-card">
+            <div class="modal-title">Manual Memory Correction</div>
+            <p style="font-size: 12px; color: var(--text-muted); line-height: 1.4;">
+                Modifying this memory supersedes the active version (v<span id="editCurrentVersion">1</span>), creating a new version with bi-temporal validity and an immutable DERIVED audit event.
+            </p>
+            <input type="hidden" id="editMemId">
+            <div class="form-group">
+                <label class="form-label">Statement</label>
+                <textarea id="editStatement" class="form-textarea" rows="3"></textarea>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div class="form-group">
+                    <label class="form-label">Lane</label>
+                    <select id="editLane" class="form-select">
+                        <option value="personal">Personal</option>
+                        <option value="work">Work</option>
+                        <option value="code">Code</option>
+                        <option value="chat">Chat</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Sensitivity</label>
+                    <select id="editSensitivity" class="form-select">
+                        <option value="normal">Normal</option>
+                        <option value="private">Private</option>
+                        <option value="secret">Secret</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Confidence (0.0 to 1.0)</label>
+                <input type="number" id="editConfidence" class="form-input" min="0" max="1" step="0.05" value="1.0">
+            </div>
+            <div class="modal-footer">
+                <button class="action-btn" onclick="closeEditModal()">Cancel</button>
+                <button class="action-btn btn-primary" onclick="submitMemoryCorrection()">Save New Version</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <script>
+        // State Store
+        const state = {
+            token: localStorage.getItem("lumen_token") || "",
+            activeTab: "explorer",
+            debounceTimer: null,
+            memories: [],
+            stats: null,
+        };
+
+        // Initialize from URL query param if present
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has("token")) {
+            state.token = urlParams.get("token");
+            localStorage.setItem("lumen_token", state.token);
+        }
+
+        // Api Fetch Helper
+        async function apiFetch(endpoint, options = {}) {
+            options.headers = options.headers || {};
+            if (state.token) {
+                options.headers["Authorization"] = `Bearer ${state.token}`;
+            }
+            if (options.body && typeof options.body === "object" && !(options.body instanceof FormData)) {
+                options.headers["Content-Type"] = "application/json";
+                options.body = JSON.stringify(options.body);
+            }
+
+            try {
+                const res = await fetch(endpoint, options);
+                if (res.status === 401) {
+                    showToast("Authentication required. Set your LUMEN_MEMORY_TOKEN.", "error");
+                    openTokenModal();
+                    throw new Error("Unauthorized");
+                }
+                if (!res.ok) {
+                    const errData = await res.json().catch(() => ({ detail: res.statusText }));
+                    throw new Error(errData.detail || `HTTP ${res.status}`);
+                }
+                return await res.json();
+            } catch (err) {
+                if (err.message !== "Unauthorized") {
+                    showToast(err.message, "error");
+                }
+                throw err;
+            }
+        }
+
+        // Toasts
+        function showToast(msg, type = "info") {
+            const container = document.getElementById("toastContainer");
+            const toast = document.createElement("div");
+            toast.className = `toast ${type}`;
+            toast.textContent = msg;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 4000);
+        }
+
+        // Tab Switching
+        function switchTab(tabId) {
+            state.activeTab = tabId;
+            document.querySelectorAll(".tab-btn").forEach(btn => btn.classList.remove("active"));
+            document.querySelectorAll(".tab-pane").forEach(pane => pane.classList.remove("active"));
+            
+            event?.currentTarget?.classList.add("active");
+            const targetPane = document.getElementById(`tab-${tabId}`);
+            if (targetPane) targetPane.classList.add("active");
+
+            refreshCurrentView();
+        }
+
+        function refreshCurrentView() {
+            loadStats();
+            if (state.activeTab === "explorer") loadMemories();
+            else if (state.activeTab === "lineage") {
+                const lid = document.getElementById("lineageSearchId").value.trim();
+                if (lid) loadLineageHistory();
+            }
+            else if (state.activeTab === "review") loadReviewQueue();
+            else if (state.activeTab === "retrieval") loadRecentTraces();
+        }
+
+        // Token Management
+        function updateTokenUI() {
+            const label = document.getElementById("tokenLabel");
+            const btn = document.getElementById("tokenBtn");
+            if (state.token) {
+                label.textContent = "Token Connected";
+                btn.classList.add("token-configured");
+            } else {
+                label.textContent = "Set Token";
+                btn.classList.remove("token-configured");
+            }
+        }
+
+        function openTokenModal() {
+            document.getElementById("tokenInput").value = state.token;
+            document.getElementById("tokenModal").classList.add("open");
+        }
+
+        function closeTokenModal() {
+            document.getElementById("tokenModal").classList.remove("open");
+        }
+
+        function saveToken() {
+            const tok = document.getElementById("tokenInput").value.trim();
+            state.token = tok;
+            localStorage.setItem("lumen_token", tok);
+            closeTokenModal();
+            updateTokenUI();
+            showToast("Token updated", "success");
+            refreshCurrentView();
+        }
+
+        // 1. Stats Loading
+        async function loadStats() {
+            try {
+                const data = await apiFetch("/v1/viewer/stats");
+                state.stats = data;
+                document.getElementById("statActive").textContent = data.active_memories;
+                document.getElementById("statLineages").textContent = data.lineages;
+                document.getElementById("statReviews").textContent = data.pending_reviews;
+                document.getElementById("statOutbox").textContent = data.outbox_pending;
+
+                // Lanes summary
+                const lEntries = Object.entries(data.lanes || {});
+                if (lEntries.length > 0) {
+                    document.getElementById("statLanes").textContent = lEntries.map(([k, v]) => `${k}:${v}`).join(" | ");
+                } else {
+                    document.getElementById("statLanes").textContent = "0 active";
+                }
+
+                // Badge for review tab
+                const rBadge = document.getElementById("tabReviewBadge");
+                if (data.pending_reviews > 0) {
+                    rBadge.textContent = data.pending_reviews;
+                    rBadge.style.display = "inline-block";
+                } else {
+                    rBadge.style.display = "none";
+                }
+            } catch (e) {
+                console.warn("Could not load stats", e);
+            }
+        }
+
+        // 2. Memory Explorer Loading
+        function debounceMemSearch() {
+            clearTimeout(state.debounceTimer);
+            state.debounceTimer = setTimeout(() => loadMemories(), 300);
+        }
+
+        async function loadMemories() {
+            const search = document.getElementById("memSearch").value.trim();
+            const lane = document.getElementById("filterLane").value;
+            const status = document.getElementById("filterStatus").value;
+            const sensitivity = document.getElementById("filterSensitivity").value;
+
+            const params = new URLSearchParams();
+            if (search) params.set("search", search);
+            if (lane) params.set("lane", lane);
+            if (status) params.set("status", status);
+            if (sensitivity) params.set("sensitivity", sensitivity);
+            params.set("limit", "100");
+
+            const container = document.getElementById("memoriesList");
+            try {
+                const res = await apiFetch(`/v1/viewer/memories?${params.toString()}`);
+                state.memories = res.items || [];
+                document.getElementById("memCountLabel").textContent = `${res.total} memories`;
+
+                if (state.memories.length === 0) {
+                    container.innerHTML = `<div class="empty-state">No memories match your query filters.</div>`;
+                    return;
+                }
+
+                container.innerHTML = state.memories.map(m => renderMemoryCard(m)).join("");
+            } catch (err) {
+                container.innerHTML = `<div class="empty-state" style="color: var(--danger)">Error loading memories: ${err.message}</div>`;
+            }
+        }
+
+        function renderMemoryCard(m) {
+            const isSecret = m.sensitivity === "secret";
+            const displayText = isSecret ? "[REDACTED SECRET]" : escapeHtml(m.statement);
+            const textClass = isSecret ? "statement-text secret-redacted" : "statement-text";
+
+            const citHtml = (m.citations && m.citations.length > 0) ? `
+                <div class="card-citations">
+                    <div style="font-weight: 600; color: var(--text-muted); font-size: 11px;">CITATIONS (${m.citations.length})</div>
+                    ${m.citations.map(c => `
+                        <div>
+                            <span class="citation-quote">"${escapeHtml(c.quote)}"</span>
+                            <span style="font-size: 11px; color: var(--text-muted);">— ${escapeHtml(c.source_title || 'Event')} (${c.said_at ? c.said_at.slice(0, 10) : ''})</span>
+                        </div>
+                    `).join("")}
+                </div>
+            ` : "";
+
+            return `
+                <div class="memory-card">
+                    <div class="card-header">
+                        <div class="card-badges">
+                            <span class="badge badge-lane-${m.lane}">${m.lane}</span>
+                            <span class="badge badge-status-${m.status}">${m.status}</span>
+                            <span class="badge badge-sensitivity-${m.sensitivity}">${m.sensitivity}</span>
+                            <span class="badge" style="background: rgba(255,255,255,0.05); color: var(--text-secondary);">v${m.version}</span>
+                            <span class="badge" style="background: rgba(255,255,255,0.05); color: var(--text-secondary);">${m.epistemic}</span>
+                        </div>
+                        <div class="card-meta">
+                            Conf: ${(m.confidence * 100).toFixed(0)}% • ID: ${m.id.slice(0, 8)}...
+                        </div>
+                    </div>
+
+                    <div class="${textClass}">${displayText}</div>
+
+                    ${(m.subject || m.object) ? `
+                        <div class="card-entities">
+                            <span>Entities:</span>
+                            ${m.subject ? `<span class="entity-pill">Subj: ${escapeHtml(m.subject)}</span>` : ''}
+                            ${m.object ? `<span class="entity-pill">Obj: ${escapeHtml(m.object)}</span>` : ''}
+                        </div>
+                    ` : ''}
+
+                    ${citHtml}
+
+                    <div class="card-signals">
+                        <div class="signal-item">
+                            <span>🔁 Reaffirmations:</span>
+                            <strong style="color: var(--text);">${m.reaffirm_count}</strong>
+                        </div>
+                        <div class="signal-item">
+                            <span>🔍 Retrieval Accesses:</span>
+                            <strong style="color: var(--text);">${m.access_count}</strong>
+                        </div>
+                        <div class="signal-item" style="margin-left: auto;">
+                            <span>Valid From: ${m.valid_from ? m.valid_from.slice(0, 16).replace('T', ' ') : 'genesis'}</span>
+                        </div>
+                    </div>
+
+                    <div class="card-actions">
+                        <button class="action-btn" onclick="inspectLineage('${m.lineage_id}')">⏳ Time Travel</button>
+                        ${m.status === 'active' ? `
+                            <button class="action-btn" onclick="openEditModal('${m.id}')">✏️ Edit / Correct</button>
+                            <button class="action-btn btn-danger" onclick="confirmTombstone('${m.id}')">🗑️ Tombstone</button>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        // 3. Edit / Correction Modal
+        function openEditModal(memId) {
+            const mem = state.memories.find(x => x.id === memId);
+            if (!mem) return;
+
+            document.getElementById("editMemId").value = mem.id;
+            document.getElementById("editCurrentVersion").textContent = mem.version;
+            document.getElementById("editStatement").value = mem.statement;
+            document.getElementById("editLane").value = mem.lane;
+            document.getElementById("editSensitivity").value = mem.sensitivity;
+            document.getElementById("editConfidence").value = mem.confidence;
+
+            document.getElementById("editModal").classList.add("open");
+        }
+
+        function closeEditModal() {
+            document.getElementById("editModal").classList.remove("open");
+        }
+
+        async function submitMemoryCorrection() {
+            const memId = document.getElementById("editMemId").value;
+            const statement = document.getElementById("editStatement").value.trim();
+            const lane = document.getElementById("editLane").value;
+            const sensitivity = document.getElementById("editSensitivity").value;
+            const confidence = parseFloat(document.getElementById("editConfidence").value);
+
+            if (!statement) {
+                showToast("Statement cannot be empty", "error");
+                return;
+            }
+
+            try {
+                const res = await apiFetch(`/v1/viewer/memories/${memId}`, {
+                    method: "PATCH",
+                    body: { statement, lane, sensitivity, confidence }
+                });
+                showToast(`Created version ${res.version}. Superseded previous version.`, "success");
+                closeEditModal();
+                refreshCurrentView();
+            } catch (err) {
+                // handled by apiFetch
+            }
+        }
+
+        // Tombstone Action
+        async function confirmTombstone(memId) {
+            if (!confirm("Are you sure you want to tombstone (forget) this memory? This sets valid_to=now and appends an immutable tombstone audit event.")) {
+                return;
+            }
+
+            try {
+                await apiFetch(`/v1/viewer/memories/${memId}`, { method: "DELETE" });
+                showToast("Memory successfully tombstoned.", "success");
+                refreshCurrentView();
+            } catch (err) {
+                // handled by apiFetch
+            }
+        }
+
+        // 4. Lineage Time Travel
+        function inspectLineage(lineageId) {
+            document.getElementById("lineageSearchId").value = lineageId;
+            switchTab("lineage");
+            loadLineageHistory();
+        }
+
+        async function loadLineageHistory() {
+            const lid = document.getElementById("lineageSearchId").value.trim();
+            if (!lid) {
+                showToast("Please enter a valid Lineage UUID", "error");
+                return;
+            }
+
+            const container = document.getElementById("lineageContent");
+            container.innerHTML = `<div class="empty-state">Loading lineage history...</div>`;
+
+            try {
+                const res = await apiFetch(`/v1/viewer/memories/${lid}/history`);
+                const versions = res.versions || [];
+
+                if (versions.length === 0) {
+                    container.innerHTML = `<div class="empty-state">No versions found for lineage ${lid}</div>`;
+                    return;
+                }
+
+                container.innerHTML = `
+                    <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 10px;">
+                        Evolution of Lineage <strong>${lid}</strong> (${versions.length} versions recorded)
+                    </div>
+                    <div class="timeline-stream">
+                        ${versions.map((v, idx) => renderTimelineNode(v, idx, versions.length)).join("")}
+                    </div>
+                `;
+            } catch (err) {
+                container.innerHTML = `<div class="empty-state" style="color: var(--danger)">Error: ${err.message}</div>`;
+            }
+        }
+
+        function renderTimelineNode(v, idx, total) {
+            const isCurrent = (idx === total - 1) && (v.status === 'active');
+            const nodeClass = isCurrent ? "timeline-node current" : "timeline-node";
+
+            // Visual diff if previous statement exists
+            let statementHtml = escapeHtml(v.statement);
+            if (v.previous_statement && v.previous_statement !== v.statement) {
+                statementHtml = computeSimpleDiff(v.previous_statement, v.statement);
+            }
+
+            return `
+                <div class="${nodeClass}">
+                    <div class="timeline-dot"></div>
+                    <div class="memory-card">
+                        <div class="card-header">
+                            <div class="card-badges">
+                                <span class="badge" style="background: var(--accent); color: #fff;">Version ${v.version}</span>
+                                <span class="badge badge-lane-${v.lane}">${v.lane}</span>
+                                <span class="badge badge-status-${v.status}">${v.status}</span>
+                                <span class="badge badge-sensitivity-${v.sensitivity}">${v.sensitivity}</span>
+                            </div>
+                            <div class="card-meta">
+                                Recorded: ${v.recorded_at ? v.recorded_at.slice(0, 19).replace('T', ' ') : ''}
+                            </div>
+                        </div>
+
+                        <div class="statement-text">${statementHtml}</div>
+
+                        <div style="font-size: 12px; color: var(--text-muted); font-family: monospace;">
+                            Valid: [${v.valid_from ? v.valid_from.slice(0, 16) : '-∞'} ➔ ${v.valid_to ? v.valid_to.slice(0, 16) : '+∞'}]
+                            ${v.superseded_at ? `• Superseded at ${v.superseded_at.slice(0, 16)}` : ''}
+                        </div>
+
+                        ${(v.citations && v.citations.length > 0) ? `
+                            <div class="card-citations">
+                                ${v.citations.map(c => `
+                                    <div><span class="citation-quote">"${escapeHtml(c.quote)}"</span></div>
+                                `).join("")}
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        function computeSimpleDiff(oldText, newText) {
+            const oldWords = oldText.split(/\s+/);
+            const newWords = newText.split(/\s+/);
+            const added = newWords.filter(w => !oldWords.includes(w));
+            
+            return newWords.map(w => {
+                if (added.includes(w)) {
+                    return `<span class="diff-added">${escapeHtml(w)}</span>`;
+                }
+                return escapeHtml(w);
+            }).join(" ");
+        }
+
+        // 5. Review Queue
+        async function loadReviewQueue() {
+            const status = document.getElementById("filterReviewStatus").value;
+            const container = document.getElementById("reviewList");
+            container.innerHTML = `<div class="empty-state">Loading review queue...</div>`;
+
+            try {
+                const items = await apiFetch(`/v1/viewer/review-queue?status=${status}`);
+                document.getElementById("reviewCountLabel").textContent = `${items.length} proposals`;
+
+                if (items.length === 0) {
+                    container.innerHTML = `<div class="empty-state">No review queue items found with status '${status}'.</div>`;
+                    return;
+                }
+
+                container.innerHTML = items.map(rq => renderReviewCard(rq)).join("");
+            } catch (err) {
+                container.innerHTML = `<div class="empty-state" style="color: var(--danger)">Error: ${err.message}</div>`;
+            }
+        }
+
+        function renderReviewCard(rq) {
+            const p = rq.proposal || {};
+            const isOpen = rq.status === 'open' || rq.status === 'pending';
+
+            return `
+                <div class="review-card">
+                    <div class="review-header">
+                        <div class="card-badges">
+                            <span class="badge" style="background: rgba(245, 158, 11, 0.2); color: var(--warning);">Tier B Proposal</span>
+                            <span class="badge badge-status-${rq.status}">${rq.status}</span>
+                            <span class="badge" style="background: var(--surface-elevated); color: var(--text-secondary);">${rq.kind}</span>
+                        </div>
+                        <div class="card-meta">
+                            Staged: ${rq.created_at ? rq.created_at.slice(0, 19).replace('T', ' ') : ''}
+                        </div>
+                    </div>
+
+                    <div class="review-reason">
+                        ⚠️ <strong>Conflict Reason:</strong> ${escapeHtml(rq.reason || 'Unspecified contradiction or low confidence')}
+                    </div>
+
+                    <div class="review-proposal-box">${escapeHtml(JSON.stringify(p, null, 2))}</div>
+
+                    ${isOpen ? `
+                        <div class="card-actions">
+                            <button class="action-btn btn-danger" onclick="resolveProposal('${rq.id}', 'reject')">❌ Reject &amp; Tombstone</button>
+                            <button class="action-btn btn-success" onclick="resolveProposal('${rq.id}', 'approve')">✅ Approve &amp; Activate</button>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+
+        async function resolveProposal(proposalId, decision) {
+            try {
+                await apiFetch(`/v1/viewer/review-queue/${proposalId}/resolve`, {
+                    method: "POST",
+                    body: { decision }
+                });
+                showToast(`Proposal ${decision === 'approve' ? 'approved' : 'rejected'}.`, "success");
+                loadReviewQueue();
+                loadStats();
+            } catch (err) {
+                // handled by apiFetch
+            }
+        }
+
+        // 6. Retrieval Inspector
+        async function executeTestRetrieval() {
+            const query = document.getElementById("retrievalQueryInput").value.trim();
+            if (!query) {
+                showToast("Please enter a query statement", "error");
+                return;
+            }
+
+            const resultsArea = document.getElementById("retrievalContextResults");
+            resultsArea.style.display = "flex";
+            resultsArea.innerHTML = `<div class="empty-state">Running 5-channel RRF and cross-encoder reranker...</div>`;
+
+            try {
+                const res = await apiFetch("/v1/context", {
+                    method: "POST",
+                    body: { query, budget_tokens: 2048, include_redacted_secrets: false }
+                });
+
+                resultsArea.innerHTML = `
+                    <div style="background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 8px; padding: 14px;">
+                        <div style="font-weight: 600; color: var(--success); margin-bottom: 8px;">
+                            ContextPack Assembled (${res.token_estimate} tokens / ${res.verified_facts.length} verified facts)
+                        </div>
+                        <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px;">
+                            ${escapeHtml(res.working_memory)}
+                        </div>
+                        <div style="font-weight: 600; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">VERIFIED FACTS (${res.verified_facts.length})</div>
+                        ${res.verified_facts.map(f => `
+                            <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; margin-bottom: 6px; font-size: 13px;">
+                                <span class="badge badge-lane-${f.lane}">${f.lane}</span>
+                                <span class="badge" style="background: rgba(255,255,255,0.05);">${f.id.slice(0, 8)}</span>
+                                <span style="margin-left: 8px;">${escapeHtml(f.statement)}</span>
+                            </div>
+                        `).join("")}
+                    </div>
+                `;
+
+                // Reload recent traces
+                setTimeout(loadRecentTraces, 500);
+            } catch (err) {
+                resultsArea.innerHTML = `<div class="empty-state" style="color: var(--danger)">Retrieval failed: ${err.message}</div>`;
+            }
+        }
+
+        async function loadRecentTraces() {
+            const container = document.getElementById("tracesList");
+            try {
+                const traces = await apiFetch("/v1/viewer/traces?limit=15");
+                if (traces.length === 0) {
+                    container.innerHTML = `<div class="empty-state">No retrieval traces recorded yet. Run a retrieval query above!</div>`;
+                    return;
+                }
+
+                container.innerHTML = traces.map(t => `
+                    <div class="memory-card">
+                        <div class="card-header">
+                            <div style="font-size: 14px; font-weight: 600; color: var(--text);">
+                                Query: "${escapeHtml(t.query)}"
+                            </div>
+                            <div class="card-meta">
+                                Latency: <strong>${t.latency_ms} ms</strong> • ${t.created_at ? t.created_at.slice(11, 19) : ''}
+                            </div>
+                        </div>
+
+                        <div class="channel-breakdown">
+                            <div class="channel-chip">Vector Hits: ${t.channels?.vector?.length || 0}</div>
+                            <div class="channel-chip">BM25 Hits: ${t.channels?.bm25?.length || 0}</div>
+                            <div class="channel-chip">Graph Hits: ${t.channels?.graph?.length || 0}</div>
+                            <div class="channel-chip">Entity Hits: ${t.channels?.entity?.length || 0}</div>
+                            <div class="channel-chip">Temporal Hits: ${t.channels?.temporal?.length || 0}</div>
+                        </div>
+
+                        <div style="font-size: 12px; color: var(--text-secondary);">
+                            Returned ${t.returned_ids?.length || 0} memories:
+                            <span style="font-family: monospace;">${(t.returned_ids || []).map(id => id.slice(0, 8)).join(", ") || 'none'}</span>
+                        </div>
+                    </div>
+                `).join("");
+            } catch (err) {
+                container.innerHTML = `<div class="empty-state" style="color: var(--danger)">Error loading traces: ${err.message}</div>`;
+            }
+        }
+
+        function escapeHtml(str) {
+            if (!str) return "";
+            return String(str)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        // Auto-refresh interval
+        setInterval(() => {
+            if (state.activeTab === "explorer" && !document.getElementById("editModal").classList.contains("open")) {
+                loadStats();
+            }
+        }, 15000);
+
+        // Boot
+        updateTokenUI();
+        refreshCurrentView();
+    </script>
+</body>
+</html>

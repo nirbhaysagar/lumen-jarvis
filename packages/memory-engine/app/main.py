@@ -3,6 +3,7 @@ Lumen Standalone Memory Engine Service.
 FastAPI Application Entrypoint & Lifespan Management.
 """
 import os
+from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse, HTMLResponse
@@ -20,6 +21,9 @@ from app.api.v1.extract import router as extract_router
 from app.api.v1.recall import router as recall_router
 from app.api.v1.outbox import router as outbox_router
 from app.api.v1.context import router as context_router
+from app.api.v1.viewer import router as viewer_router
+
+VIEWER_HTML_PATH = Path(__file__).resolve().parent.parent / "viewer" / "index.html"
 
 
 @asynccontextmanager
@@ -112,6 +116,7 @@ app.include_router(extract_router)
 app.include_router(recall_router)
 app.include_router(outbox_router)
 app.include_router(context_router)
+app.include_router(viewer_router)
 
 # Mount legacy router only if explicitly enabled
 if os.getenv("LUMEN_LEGACY_API") == "1":
@@ -121,6 +126,15 @@ if os.getenv("LUMEN_LEGACY_API") == "1":
     except Exception as e:
         import logging
         logging.getLogger("lumen.main").warning(f"Failed to mount legacy router: {e}")
+
+
+@app.get("/viewer", response_class=HTMLResponse)
+@app.get("/viewer/", response_class=HTMLResponse)
+async def get_viewer_ui():
+    """Serves the Glass-Box Live Memory Viewer web interface."""
+    if VIEWER_HTML_PATH.exists():
+        return HTMLResponse(content=VIEWER_HTML_PATH.read_text(encoding="utf-8"))
+    return HTMLResponse(content="<h1>Viewer UI not found</h1><p>Please check that viewer/index.html exists.</p>", status_code=404)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -295,7 +309,8 @@ async def root_dashboard():
         </div>
 
         <div class="actions">
-            <a href="/docs" class="btn btn-primary" target="_blank">Open API Docs (Swagger) →</a>
+            <a href="/viewer" class="btn btn-primary">Glass-Box Memory Viewer →</a>
+            <a href="/docs" class="btn btn-secondary" target="_blank">API Docs (Swagger)</a>
             <a href="/health" class="btn btn-secondary" target="_blank">Health JSON</a>
         </div>
 
