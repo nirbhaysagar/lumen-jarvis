@@ -14,6 +14,27 @@ class CircuitBreakerOpenException(Exception):
     pass
 
 
+DEFAULT_CONNECT_TIMEOUT = 2.0
+DEFAULT_READ_TIMEOUT = 15.0
+DEFAULT_EXTRACT_READ_TIMEOUT = 120.0
+
+DEFAULT_TIMEOUT = httpx.Timeout(
+    timeout=DEFAULT_READ_TIMEOUT,
+    connect=DEFAULT_CONNECT_TIMEOUT,
+    read=DEFAULT_READ_TIMEOUT,
+    write=15.0,
+    pool=5.0,
+)
+
+EXTRACT_TIMEOUT = httpx.Timeout(
+    timeout=DEFAULT_EXTRACT_READ_TIMEOUT,
+    connect=DEFAULT_CONNECT_TIMEOUT,
+    read=DEFAULT_EXTRACT_READ_TIMEOUT,
+    write=15.0,
+    pool=5.0,
+)
+
+
 class MemoryServiceClient:
     """
     HTTP client for the standalone Memory Engine service.
@@ -25,6 +46,8 @@ class MemoryServiceClient:
         base_url: str | None = None,
         token: str | None = None,
         max_consecutive_failures: int = 3,
+        timeout: httpx.Timeout | float | None = None,
+        extract_timeout: httpx.Timeout | float | None = None,
     ):
         import os
         if base_url is None:
@@ -34,10 +57,25 @@ class MemoryServiceClient:
         self.max_failures = max_consecutive_failures
         self.failure_count = 0
         self.circuit_open = False
+
+        if timeout is None:
+            self.timeout = DEFAULT_TIMEOUT
+        elif isinstance(timeout, (int, float)):
+            self.timeout = httpx.Timeout(timeout=float(timeout), connect=DEFAULT_CONNECT_TIMEOUT)
+        else:
+            self.timeout = timeout
+
+        if extract_timeout is None:
+            self.extract_timeout = EXTRACT_TIMEOUT
+        elif isinstance(extract_timeout, (int, float)):
+            self.extract_timeout = httpx.Timeout(timeout=float(extract_timeout), connect=DEFAULT_CONNECT_TIMEOUT)
+        else:
+            self.extract_timeout = extract_timeout
+
         headers = {}
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
-        self._client = httpx.AsyncClient(timeout=4.0, headers=headers)
+        self._client = httpx.AsyncClient(timeout=self.timeout, headers=headers)
 
     def _record_success(self):
         self.failure_count = 0
@@ -92,6 +130,7 @@ class MemoryServiceClient:
         occurred_at: str | None = None,
         idempotency_key: str | None = None,
         trace_id: str | None = None,
+        speaker: str = "user",
     ) -> dict[str, Any] | None:
         """Synchronously captures raw text into the L0 event log (POST /v1/capture)."""
         if self.circuit_open:
@@ -104,23 +143,36 @@ class MemoryServiceClient:
             "context": context,
             "occurred_at": occurred_at,
             "idempotency_key": idempotency_key,
+            "speaker": speaker,
         }
-        try:
-            resp = await self._client.post(
-                f"{self.base_url}/v1/capture",
-                headers=headers,
-                json=payload,
-            )
-            if resp.status_code in (200, 201):
-                self._record_success()
-                return resp.json()
-            else:
+
+        # Idempotent retry on network/connect/timeout errors if idempotency_key is present
+        max_retries = 2 if idempotency_key else 0
+        for attempt in range(max_retries + 1):
+            try:
+                resp = await self._client.post(
+                    f"{self.base_url}/v1/capture",
+                    headers=headers,
+                    json=payload,
+                )
+                if resp.status_code in (200, 201):
+                    self._record_success()
+                    return resp.json()
+                else:
+                    self._record_failure()
+                    return None
+            except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError) as e:
+                if attempt < max_retries:
+                    import asyncio
+                    await asyncio.sleep(0.1 * (2 ** attempt))
+                    continue
+                logger.debug(f"Memory service capture error: {e}")
                 self._record_failure()
                 return None
-        except Exception as e:
-            logger.debug(f"Memory service capture error: {e}")
-            self._record_failure()
-            return None
+            except Exception as e:
+                logger.debug(f"Memory service capture error: {e}")
+                self._record_failure()
+                return None
 
     async def extract_and_apply(
         self,
@@ -146,6 +198,7 @@ class MemoryServiceClient:
                 f"{self.base_url}/v1/extract",
                 headers=headers,
                 json=payload,
+                timeout=self.extract_timeout,
             )
             if resp.status_code == 200:
                 self._record_success()
@@ -156,6 +209,29 @@ class MemoryServiceClient:
         except Exception as e:
             logger.debug(f"Memory service extract error: {e}")
             self._record_failure()
+            return None
+
+    async def get_save_report(
+        self,
+        event_id: str,
+        trace_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Retrieves structured SaveReport audit for a processed event (GET /v1/events/{id}/save-report)."""
+        if self.circuit_open:
+            return None
+
+        headers = {"X-Trace-ID": trace_id} if trace_id else {}
+        try:
+            resp = await self._client.get(
+                f"{self.base_url}/v1/events/{event_id}/save-report",
+                headers=headers,
+            )
+            if resp.status_code == 200:
+                self._record_success()
+                return resp.json()
+            return None
+        except Exception as e:
+            logger.debug(f"Memory service get_save_report error: {e}")
             return None
 
     async def search_memories(
