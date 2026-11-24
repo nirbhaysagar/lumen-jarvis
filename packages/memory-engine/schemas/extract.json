@@ -24,19 +24,34 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["ref", "type", "epistemic", "asserted_by", "statement", "evidence", "confidence", "importance"],
+        "required": [
+          "ref",
+          "type",
+          "epistemic",
+          "asserted_by",
+          "statement",
+          "evidence",
+          "confidence",
+          "importance",
+          "lane",
+          "sensitivity"
+        ],
         "properties": {
           "ref": {"type": "string", "pattern": "^m[0-9]+$"},
           "type": {
             "enum": ["fact", "decision", "goal", "assumption", "insight", "question", "action", "constraint", "event"]
           },
           "epistemic": {"enum": ["fact", "belief", "inference", "decision"]},
+          "lane": {"enum": ["personal", "work", "code", "chat"]},
+          "sensitivity": {"enum": ["normal", "private", "secret"]},
+          "about_speaker": {"type": "boolean"},
           "asserted_by": {"type": "string"},
           "statement": {"type": "string", "minLength": 5, "maxLength": 300},
           "subject": {"type": ["string", "null"], "pattern": "^e[0-9]+$"},
           "predicate": {"type": ["string", "null"], "pattern": "^[a-z][a-z0-9_]{1,40}$"},
           "object": {"type": ["string", "null"], "pattern": "^e[0-9]+$"},
-          "object_value": {"type": ["string", "number", "boolean", "null"]},
+          "object_value": {"type": ["string", "number", "boolean", "null", "object"]},
+          "attributes": {"type": ["object", "null"]},
           "cardinality": {"enum": ["one", "many"]},
           "polarity": {"type": "boolean"},
           "valid_from_text": {"type": ["string", "null"]},

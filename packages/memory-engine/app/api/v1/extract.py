@@ -49,6 +49,7 @@ def get_db_pool(request: Request):
 
 from app.domain.extraction import MemoryExtractor, ExtractionError
 from app.services.extract_service import extract_event
+from app.pipeline.contracts import SaveReport
 
 
 @router.post("/extract", response_model=ExtractResponse, status_code=status.HTTP_200_OK)
@@ -135,4 +136,83 @@ async def retry_extraction(
             )
 
     return res
+
+
+@router.get("/events/{event_id}/save-report", response_model=SaveReport, status_code=status.HTTP_200_OK)
+async def get_save_report(
+    event_id: uuid.UUID,
+    pool=Depends(get_db_pool),
+):
+    """Returns the complete 5-stage save report for an event."""
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT id, stage_ms, counts, dropped, model, created_at
+            FROM save_runs
+            WHERE event_id = $1
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            event_id,
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail=f"Save report for event {event_id} not found")
+
+        mem_rows = await conn.fetch(
+            """
+            SELECT id, lineage_id, version, statement, lane, sensitivity, status
+            FROM memories
+            WHERE created_event = $1
+            ORDER BY recorded_at ASC
+            """,
+            event_id,
+        )
+
+        mem_ids = [m["id"] for m in mem_rows]
+        if mem_ids:
+            rq_rows = await conn.fetch(
+                """
+                SELECT id FROM review_queue
+                WHERE proposal->>'event_id' = $1
+                   OR (proposal->>'memory_id')::uuid = ANY($2::uuid[])
+                """,
+                str(event_id),
+                mem_ids,
+            )
+        else:
+            rq_rows = await conn.fetch(
+                "SELECT id FROM review_queue WHERE proposal->>'event_id' = $1",
+                str(event_id),
+            )
+
+        outbox_rows = await conn.fetch(
+            "SELECT id FROM outbox WHERE event_id = $1",
+            event_id,
+        )
+
+    stage_ms = json.loads(row["stage_ms"]) if isinstance(row["stage_ms"], str) else (row["stage_ms"] or {})
+    counts = json.loads(row["counts"]) if isinstance(row["counts"], str) else (row["counts"] or {})
+    dropped = json.loads(row["dropped"]) if isinstance(row["dropped"], str) else (row["dropped"] or [])
+    mems = [
+        {
+            "id": str(m["id"]),
+            "lineage_id": str(m["lineage_id"]),
+            "version": m["version"],
+            "statement": m["statement"],
+            "lane": m["lane"],
+            "sensitivity": m["sensitivity"],
+            "status": m["status"],
+        }
+        for m in mem_rows
+    ]
+
+    return SaveReport(
+        event_id=event_id,
+        stage_ms=stage_ms,
+        counts=counts,
+        dropped=dropped,
+        memories=mems,
+        review_ids=[r["id"] for r in rq_rows],
+        outbox_ids=[o["id"] for o in outbox_rows],
+    )
 

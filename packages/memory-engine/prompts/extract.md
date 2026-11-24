@@ -12,13 +12,24 @@ Rules:
    belief = an opinion, preference or claim someone holds ("I think", "X is better", anything an article/website asserts)
    inference = YOUR conclusion that the text does not state (use sparingly, confidence <= 0.6)
    decision = a commitment ("we decided", "going with", "let's use")
-6. asserted_by: "{speaker}" for the speaker; the author/site name for sources; "lumen" for inference.
-7. Entities: Each entity must have "ref" (e1, e2 ...), "name" (canonical name), "kind" (EXACTLY one of: person, org, project, tool, place, concept, document, other), and optional "aliases". (Do not use "type" for entities, use "kind").
-8. subject/object: refs into "entities" (e1, e2 ...). predicate: short snake_case verb phrase (uses_editor, primary_database, prefers, works_at, deadline). Any predicate is allowed.
-9. cardinality "one" only when the subject can have exactly one value at a time (primary_database, lives_in, deadline). Preferences, tools, likes are "many".
-10. polarity false for negations ("does not use Docker").
-11. change_cue true when the text signals a change: "now", "switched", "no longer", "actually", "instead", "from now on", "moved to".
-12. Dates: resolve relative dates against CAPTURED_AT {captured_at} ({tz}); ISO-8601 with offset. If relative temporal anchor phrases are present ("since March", "last week", "as of yesterday"), set valid_from_text.
-13. Skip greetings, filler, and questions to the assistant that contain no information.
-14. confidence = how sure the text makes it (hedges lower it). importance: 0.2 trivia, 0.5 normal, 0.8 decisions/constraints/goals, 1.0 safety or identity.
-15. relations: only between memories in THIS output, using their refs (m1, m2 ...).
+6. lane: personal | work | code | chat.
+   work = jobs, projects, professional architecture · code = repos, languages, libraries, dev tools · chat = conversational context · personal = health, finances, relationships, hobbies, home.
+7. sensitivity: normal | private | secret.
+   secret = passwords, OTPs, API keys, credentials, payment card numbers · private = PII, phone numbers, emails, addresses, medical details · normal = all general facts, preferences, code, decisions.
+8. about_speaker: true if the assertion is about the speaker themselves ("I prefer Neovim", "My name is X"); false if about others or general tools.
+9. asserted_by: "{speaker}" for the speaker; the author/site name for sources; "lumen" for inference.
+10. Entities: Each entity must have "ref" (e1, e2 ...), "name" (canonical name), "kind" (EXACTLY one of: person, org, project, tool, place, concept, document, other), and optional "aliases". (Do not use "type" for entities, use "kind").
+11. subject/object: refs into "entities" (e1, e2 ...). predicate: short snake_case verb phrase (uses_editor, primary_database, prefers, works_at, deadline). Any predicate is allowed.
+12. attributes: optional per-type attributes object:
+    - decision: {{"who": string, "why": string, "alternatives": string[], "decided_at": string}}
+    - goal: {{"owner": string, "deadline": string}}
+    - constraint: {{"category": "technical"|"budget"|"time"|"security"|"legal"}}
+    - action: {{"owner": string, "due": string}}
+    - question: {{"status": "open"|"answered"}}
+13. cardinality "one" only when the subject can have exactly one value at a time (primary_database, lives_in, deadline). Preferences, tools, likes are "many".
+14. polarity false for negations ("does not use Docker").
+15. change_cue true when the text signals a change: "now", "switched", "no longer", "actually", "instead", "from now on", "moved to".
+16. Dates: resolve relative dates against CAPTURED_AT {captured_at} ({tz}); ISO-8601 with offset. If relative temporal anchor phrases are present ("since March", "last week", "as of yesterday"), set valid_from_text.
+17. Skip greetings, filler, and questions to the assistant that contain no information.
+18. confidence = how sure the text makes it (hedges lower it). importance: 0.2 trivia, 0.5 normal, 0.8 decisions/constraints/goals, 1.0 safety or identity.
+19. relations: only between memories in THIS output, using their refs (m1, m2 ...).

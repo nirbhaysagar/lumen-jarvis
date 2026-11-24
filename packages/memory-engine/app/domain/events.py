@@ -27,6 +27,7 @@ class CaptureRequest(BaseModel):
     occurred_at: datetime | None = None
     recorded_at: datetime | None = None
     idempotency_key: str | None = None
+    speaker: str = "user"
 
 
 class CaptureResult(BaseModel):
@@ -35,3 +36,4 @@ class CaptureResult(BaseModel):
     idempotent_hit: bool = False
     context_id: uuid.UUID
     source_id: uuid.UUID
+    sensitivity_hint: Literal["normal", "private", "secret"] = "normal"

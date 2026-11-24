@@ -43,8 +43,8 @@ _ALLOWED_ENTITY_KEYS = {"ref", "name", "kind", "aliases"}
 _ALLOWED_MEMORY_KEYS = {
     "ref", "type", "epistemic", "asserted_by", "statement", "subject",
     "predicate", "object", "object_value", "cardinality", "polarity",
-    "valid_from", "valid_to", "evidence", "confidence", "importance",
-    "change_cue", "relations",
+    "valid_from_text", "valid_from", "valid_to", "evidence", "confidence", "importance",
+    "change_cue", "relations", "lane", "sensitivity", "about_speaker", "attributes",
 }
 _ALLOWED_RELATION_KEYS = {"type", "to"}
 
@@ -222,6 +222,14 @@ def _normalize_parsed(data: Any) -> dict[str, Any]:
                 if isinstance(r, dict) and "type" in r and "to" in r:
                     clean_rels.append({k: r[k] for k in _ALLOWED_RELATION_KEYS if k in r})
             item["relations"] = clean_rels
+
+        # Ensure lane and sensitivity
+        if "lane" not in item or item["lane"] not in ("personal", "work", "code", "chat"):
+            item["lane"] = "personal"
+        if "sensitivity" not in item or item["sensitivity"] not in ("normal", "private", "secret"):
+            item["sensitivity"] = "normal"
+        if "about_speaker" not in item:
+            item["about_speaker"] = False
 
         # Drop unknown keys
         item = {k: v for k, v in item.items() if k in _ALLOWED_MEMORY_KEYS}

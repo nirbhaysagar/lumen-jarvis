@@ -112,6 +112,24 @@ class JobsWorker:
                                     list(vec),
                                     ch["id"],
                                 )
+                elif kind == "embed_memory":
+                    payload_dict = json.loads(job["payload"]) if isinstance(job["payload"], str) else (job["payload"] or {})
+                    mem_id = payload_dict.get("memory_id")
+                    if mem_id and self.embedding:
+                        async with self.pool.acquire() as mem_conn:
+                            row = await mem_conn.fetchrow(
+                                "SELECT statement, sensitivity FROM memories WHERE id = $1 AND embedding IS NULL",
+                                uuid.UUID(mem_id),
+                            )
+                            if row and row["sensitivity"] != "secret" and row["statement"]:
+                                vec = await self.embedding.generate_embedding(row["statement"], prefix="search_document")
+                                model_name = getattr(self.embedding, "_model", None) or getattr(self.embedding, "model", settings.EMBEDDING_MODEL)
+                                await mem_conn.execute(
+                                    "UPDATE memories SET embedding = $1, embedding_model = $2 WHERE id = $3",
+                                    list(vec),
+                                    model_name,
+                                    uuid.UUID(mem_id),
+                                )
                 elif kind == "consolidate":
                     logger.debug(f"Consolidate job {job_id} executed (noop until C1).")
                 else:
