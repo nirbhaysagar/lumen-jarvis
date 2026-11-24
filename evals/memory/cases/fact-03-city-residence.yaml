@@ -1,0 +1,13 @@
+id: fact-03-city-residence
+category: fact_retrieval
+setup:
+- content: I live in Bengaluru near Indiranagar.
+  occurred_at: -20d
+query:
+  text: Where do I live?
+expect:
+  answer_contains_any:
+  - Bengaluru
+  - Indiranagar
+  cites_setup:
+  - 0

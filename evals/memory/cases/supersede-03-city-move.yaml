@@ -1,0 +1,16 @@
+id: supersede-03-city-move
+category: supersede_update
+setup:
+- content: I live in Mumbai near Bandra.
+  occurred_at: -180d
+- content: I moved from Mumbai to Bengaluru last month.
+  occurred_at: -15d
+query:
+  text: Where do I currently live?
+expect:
+  answer_contains_any:
+  - Bengaluru
+  answer_excludes_any:
+  - Mumbai
+  cites_setup:
+  - 1

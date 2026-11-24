@@ -1,0 +1,13 @@
+id: code-09-outbox-table-purpose
+category: code_and_work_lanes
+setup:
+- content: The transactional outbox table emits CDC change events for vault markdown
+    projection.
+  occurred_at: -9d
+query:
+  text: What downstream projection consumes the outbox table?
+  context: code
+expect:
+  answer_contains_any:
+  - vault
+  - markdown

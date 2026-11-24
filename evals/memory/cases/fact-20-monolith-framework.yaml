@@ -1,0 +1,14 @@
+id: fact-20-monolith-framework
+category: fact_retrieval
+setup:
+- content: Lumen core backend service is written in Python 3.12 using FastAPI and
+    AsyncPG.
+  occurred_at: -16d
+query:
+  text: What web framework powers Lumen backend?
+expect:
+  answer_contains_any:
+  - FastAPI
+  - AsyncPG
+  cites_setup:
+  - 0

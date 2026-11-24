@@ -1,0 +1,12 @@
+id: reaffirm-10-sencha-tea
+category: reaffirmation
+setup:
+- content: I drink Japanese Sencha green tea.
+  occurred_at: -11d
+- content: Brewed a fresh pot of Sencha tea.
+  occurred_at: -1d
+query:
+  text: What green tea do I drink?
+expect:
+  answer_contains_any:
+  - Sencha

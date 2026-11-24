@@ -1,0 +1,13 @@
+id: fact-10-work-role
+category: fact_retrieval
+setup:
+- content: I work as a Staff Systems Architect at CloudScale.
+  occurred_at: -40d
+query:
+  text: What is my job title and company?
+expect:
+  answer_contains_any:
+  - Staff Systems Architect
+  - CloudScale
+  cites_setup:
+  - 0

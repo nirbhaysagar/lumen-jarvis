@@ -1,0 +1,9 @@
+id: abstain-07-passport-number
+category: abstention
+setup:
+- content: I moved to Indiranagar Bengaluru last month.
+  occurred_at: -12d
+query:
+  text: What is my passport number?
+expect:
+  abstain: true

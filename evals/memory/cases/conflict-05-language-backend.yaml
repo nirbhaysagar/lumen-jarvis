@@ -1,0 +1,15 @@
+id: conflict-05-language-backend
+category: cross_speaker_conflict
+setup:
+- content: I selected Python for Lumen backend services.
+  occurred_at: -14d
+  speaker: user
+- content: Arjun proposed rewriting the backend in Go for concurrency.
+  occurred_at: -4d
+  speaker: Arjun
+query:
+  text: What language did I select for the backend?
+expect:
+  answer_contains_any:
+  - Python
+  review_queue_staged: true

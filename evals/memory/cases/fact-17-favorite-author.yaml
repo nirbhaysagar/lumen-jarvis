@@ -1,0 +1,12 @@
+id: fact-17-favorite-author
+category: fact_retrieval
+setup:
+- content: My favorite science fiction author is Ted Chiang.
+  occurred_at: -18d
+query:
+  text: Who is my favorite sci-fi writer?
+expect:
+  answer_contains_any:
+  - Ted Chiang
+  cites_setup:
+  - 0

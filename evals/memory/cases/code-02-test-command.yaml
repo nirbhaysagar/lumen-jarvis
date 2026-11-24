@@ -1,0 +1,12 @@
+id: code-02-test-command
+category: code_and_work_lanes
+setup:
+- content: To run memory engine unit tests, execute pytest packages/memory-engine/tests
+    -q.
+  occurred_at: -10d
+query:
+  text: How do I run memory engine unit tests?
+  context: code
+expect:
+  answer_contains_any:
+  - packages/memory-engine/tests

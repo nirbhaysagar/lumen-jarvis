@@ -1,0 +1,11 @@
+id: code-03-docker-compose-port
+category: code_and_work_lanes
+setup:
+- content: PostgreSQL in docker-compose is bound to localhost port 5432.
+  occurred_at: -12d
+query:
+  text: What port does docker-compose Postgres bind to?
+  context: code
+expect:
+  answer_contains_any:
+  - '5432'

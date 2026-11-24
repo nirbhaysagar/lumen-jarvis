@@ -1,0 +1,9 @@
+id: abstain-09-salary
+category: abstention
+setup:
+- content: I work as a Staff Systems Architect.
+  occurred_at: -15d
+query:
+  text: What is my annual base salary?
+expect:
+  abstain: true

@@ -1,0 +1,9 @@
+id: abstain-10-favorite-movie
+category: abstention
+setup:
+- content: My favorite author is Ted Chiang.
+  occurred_at: -9d
+query:
+  text: What is my all-time favorite movie?
+expect:
+  abstain: true

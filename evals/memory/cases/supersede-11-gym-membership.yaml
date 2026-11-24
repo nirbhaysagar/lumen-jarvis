@@ -1,0 +1,16 @@
+id: supersede-11-gym-membership
+category: supersede_update
+setup:
+- content: I work out at Cult.fit Indiranagar.
+  occurred_at: -70d
+- content: I cancelled Cult.fit and joined Gold's Gym.
+  occurred_at: -9d
+query:
+  text: Which gym do I go to?
+expect:
+  answer_contains_any:
+  - Gold's Gym
+  answer_excludes_any:
+  - Cult.fit
+  cites_setup:
+  - 1

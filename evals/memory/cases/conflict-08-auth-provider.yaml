@@ -1,0 +1,15 @@
+id: conflict-08-auth-provider
+category: cross_speaker_conflict
+setup:
+- content: I implemented Supabase Auth with PKCE flow.
+  occurred_at: -11d
+  speaker: user
+- content: Security auditor Marcus recommended migrating to Clerk.
+  occurred_at: -1d
+  speaker: Marcus
+query:
+  text: What authentication provider did I implement?
+expect:
+  answer_contains_any:
+  - Supabase
+  review_queue_staged: true

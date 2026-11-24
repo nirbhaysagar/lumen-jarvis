@@ -1,0 +1,16 @@
+id: conflict-04-cloud-region
+category: cross_speaker_conflict
+setup:
+- content: We deploy our primary cluster in AWS Mumbai ap-south-1.
+  occurred_at: -12d
+  speaker: user
+- content: DevOps engineer Karthik argued we should host in Singapore ap-southeast-1.
+  occurred_at: -3d
+  speaker: Karthik
+query:
+  text: Where is our primary cluster deployed?
+expect:
+  answer_contains_any:
+  - Mumbai
+  - ap-south-1
+  review_queue_staged: true

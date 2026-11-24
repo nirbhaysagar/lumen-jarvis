@@ -1,0 +1,9 @@
+id: abstain-03-bank-account
+category: abstention
+setup:
+- content: I work at CloudScale as an architect.
+  occurred_at: -4d
+query:
+  text: What bank do I have my savings account with?
+expect:
+  abstain: true

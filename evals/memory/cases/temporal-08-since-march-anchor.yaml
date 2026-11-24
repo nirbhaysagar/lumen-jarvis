@@ -1,0 +1,10 @@
+id: temporal-08-since-march-anchor
+category: temporal_validity
+setup:
+- content: Since March 2026 I have been using Postgres 17 for Lumen.
+  occurred_at: -20d
+query:
+  text: Since when have I been using Postgres 17 for Lumen?
+expect:
+  answer_contains_any:
+  - March

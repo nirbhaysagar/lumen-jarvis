@@ -1,0 +1,11 @@
+id: code-05-circuit-breaker-threshold
+category: code_and_work_lanes
+setup:
+- content: The memory client trips its circuit breaker after 3 consecutive HTTP failures.
+  occurred_at: -8d
+query:
+  text: How many consecutive failures trip the memory circuit breaker?
+  context: code
+expect:
+  answer_contains_any:
+  - '3'

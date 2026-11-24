@@ -1,0 +1,12 @@
+id: temporal-04-old-database
+category: temporal_validity
+setup:
+- content: Lumen was initially prototyped on SQLite.
+  occurred_at: -180d
+- content: We migrated Lumen to Postgres 17 in October.
+  occurred_at: -15d
+query:
+  text: What database was Lumen initially prototyped on?
+expect:
+  answer_contains_any:
+  - SQLite

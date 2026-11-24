@@ -1,0 +1,12 @@
+id: reaffirm-08-brother-anshul
+category: reaffirmation
+setup:
+- content: My brother Anshul is in Delhi.
+  occurred_at: -20d
+- content: Had a video call with my brother Anshul today.
+  occurred_at: -3d
+query:
+  text: Who is my brother?
+expect:
+  answer_contains_any:
+  - Anshul

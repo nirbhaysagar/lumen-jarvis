@@ -1,0 +1,12 @@
+id: code-10-luhn-algorithm
+category: code_and_work_lanes
+setup:
+- content: We use Luhn checksum validation in sensitivity.py to detect credit card
+    numbers.
+  occurred_at: -7d
+query:
+  text: What algorithm validates payment card numbers in our scanner?
+  context: code
+expect:
+  answer_contains_any:
+  - Luhn

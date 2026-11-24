@@ -1,0 +1,13 @@
+id: temporal-01-historical-city
+category: temporal_validity
+setup:
+- content: I lived in Mumbai from January 2024 until October 2026.
+  occurred_at: -60d
+- content: I moved to Bengaluru in November 2026.
+  occurred_at: -10d
+query:
+  text: Where did I live as of June 2024?
+  as_of: -120d
+expect:
+  answer_contains_any:
+  - Mumbai

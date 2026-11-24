@@ -1,0 +1,12 @@
+id: reaffirm-07-fastapi-backend
+category: reaffirmation
+setup:
+- content: We built our API service with FastAPI.
+  occurred_at: -14d
+- content: FastAPI is our standard backend API framework.
+  occurred_at: -4d
+query:
+  text: What API framework do we use?
+expect:
+  answer_contains_any:
+  - FastAPI

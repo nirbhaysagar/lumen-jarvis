@@ -1,0 +1,12 @@
+id: fact-01-primary-editor
+category: fact_retrieval
+setup:
+- content: I use Neovim as my primary code editor.
+  occurred_at: -5d
+query:
+  text: What is my primary code editor?
+expect:
+  answer_contains_any:
+  - Neovim
+  cites_setup:
+  - 0

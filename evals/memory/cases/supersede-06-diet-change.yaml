@@ -1,0 +1,16 @@
+id: supersede-06-diet-change
+category: supersede_update
+setup:
+- content: I eat chicken and eggs regularly.
+  occurred_at: -90d
+- content: I decided to become strictly vegetarian from this month.
+  occurred_at: -4d
+query:
+  text: What are my current dietary habits?
+expect:
+  answer_contains_any:
+  - vegetarian
+  answer_excludes_any:
+  - chicken
+  cites_setup:
+  - 1

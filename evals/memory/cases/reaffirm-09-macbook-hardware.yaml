@@ -1,0 +1,12 @@
+id: reaffirm-09-macbook-hardware
+category: reaffirmation
+setup:
+- content: My laptop is an Apple MacBook Air M3.
+  occurred_at: -16d
+- content: Developing locally on my MacBook Air M3 is super efficient.
+  occurred_at: -2d
+query:
+  text: What laptop do I develop on?
+expect:
+  answer_contains_any:
+  - MacBook Air M3

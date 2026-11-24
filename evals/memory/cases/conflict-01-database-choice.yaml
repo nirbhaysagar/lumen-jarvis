@@ -1,0 +1,16 @@
+id: conflict-01-database-choice
+category: cross_speaker_conflict
+setup:
+- content: I decided Lumen must use PostgreSQL 17 for ACID transactions.
+  occurred_at: -4d
+  speaker: user
+- content: Rahul says Lumen should migrate to MongoDB for document flexibility.
+  occurred_at: -1d
+  speaker: Rahul
+query:
+  text: What database did I decide on for Lumen?
+expect:
+  answer_contains_any:
+  - PostgreSQL 17
+  - Postgres
+  review_queue_staged: true

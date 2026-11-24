@@ -1,0 +1,9 @@
+id: abstain-02-mother-maiden-name
+category: abstention
+setup:
+- content: My brother's name is Anshul.
+  occurred_at: -5d
+query:
+  text: What is my mother's maiden name?
+expect:
+  abstain: true

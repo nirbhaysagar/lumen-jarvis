@@ -1,0 +1,13 @@
+id: fact-11-car-model
+category: fact_retrieval
+setup:
+- content: I drive a white Hyundai Ioniq 5 electric car.
+  occurred_at: -25d
+query:
+  text: What car do I drive?
+expect:
+  answer_contains_any:
+  - Ioniq 5
+  - Hyundai
+  cites_setup:
+  - 0

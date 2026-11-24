@@ -1,0 +1,16 @@
+id: supersede-09-negation-docker
+category: supersede_update
+setup:
+- content: I use Docker Desktop for local container management.
+  occurred_at: -40d
+- content: I no longer use Docker Desktop, I switched entirely to OrbStack.
+  occurred_at: -6d
+query:
+  text: What tool do I use for local containers?
+expect:
+  answer_contains_any:
+  - OrbStack
+  answer_excludes_any:
+  - Docker Desktop
+  cites_setup:
+  - 1

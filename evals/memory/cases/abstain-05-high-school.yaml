@@ -1,0 +1,9 @@
+id: abstain-05-high-school
+category: abstention
+setup:
+- content: My brother studied computer science at IIT Delhi.
+  occurred_at: -8d
+query:
+  text: Which high school did I attend?
+expect:
+  abstain: true

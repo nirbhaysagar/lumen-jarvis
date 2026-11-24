@@ -1,0 +1,102 @@
+name: Lumen Memory Engine CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'memory/**'
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test-memory:
+    name: Memory Engine & Client Test Suite
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: lumen
+          POSTGRES_PASSWORD: lumen_test_password
+          POSTGRES_DB: lumen_memory_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e packages/memory-engine
+          pip install -e apps/lumen-core
+          pip install pytest pytest-asyncio rapidfuzz dateparser httpx pyyaml asyncpg
+
+      - name: Install Ollama
+        run: |
+          curl -fsSL https://ollama.ai/install.sh | sh
+          ollama serve &
+          sleep 3
+          ollama pull nomic-embed-text
+          ollama pull qwen2.5:7b-instruct
+
+      - name: Run Database Migrations
+        env:
+          DATABASE_URL: postgresql://lumen:lumen_test_password@localhost:5432/lumen_memory_test
+          POSTGRES_DB: lumen_memory_test
+          POSTGRES_PASSWORD: lumen_test_password
+        run: |
+          cd packages/memory-engine
+          alembic upgrade head
+
+      - name: Run Memory Engine Unit Tests
+        env:
+          LUMEN_ENV: test
+          POSTGRES_DB: lumen_memory_test
+          POSTGRES_PASSWORD: lumen_test_password
+          LUMEN_DATABASE_URL: postgresql://lumen:lumen_test_password@localhost:5432/lumen_memory_test
+          LUMEN_MEMORY_TOKEN: ci_secret_token_test_12345
+        run: |
+          PYTHONPATH=packages/memory-engine pytest packages/memory-engine/tests -v
+
+      - name: Run Core Memory Client Tests
+        env:
+          LUMEN_ENV: test
+          LUMEN_MEMORY_URL: http://127.0.0.1:8000
+          LUMEN_MEMORY_TOKEN: ci_secret_token_test_12345
+        run: |
+          PYTHONPATH=apps/lumen-core pytest apps/lumen-core/tests -k "memory" -v
+
+      - name: Run Evaluation Harness Unit Tests
+        run: |
+          PYTHONPATH=. pytest evals/memory/test_metrics.py evals/memory/test_adapters.py -v
+
+      - name: Run Synthetic Memory Evaluations
+        env:
+          LUMEN_ENV: test
+          POSTGRES_DB: lumen_memory_test
+          POSTGRES_PASSWORD: lumen_test_password
+          LUMEN_DATABASE_URL: postgresql://lumen:lumen_test_password@localhost:5432/lumen_memory_test
+          LUMEN_MEMORY_TOKEN: ci_secret_token_test_12345
+        run: |
+          python evals/memory/run.py --category fact_retrieval --pacing 0.1
+          python evals/memory/run.py --category abstention --pacing 0.1

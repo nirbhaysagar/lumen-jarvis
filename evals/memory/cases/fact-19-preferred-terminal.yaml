@@ -1,0 +1,12 @@
+id: fact-19-preferred-terminal
+category: fact_retrieval
+setup:
+- content: I use Ghostty as my terminal emulator across macOS and Linux.
+  occurred_at: -11d
+query:
+  text: What terminal emulator do I use?
+expect:
+  answer_contains_any:
+  - Ghostty
+  cites_setup:
+  - 0

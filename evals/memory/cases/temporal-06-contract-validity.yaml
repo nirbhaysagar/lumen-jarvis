@@ -1,0 +1,10 @@
+id: temporal-06-contract-validity
+category: temporal_validity
+setup:
+- content: Our vendor SLA contract with Datadog is valid until December 2026.
+  occurred_at: -10d
+query:
+  text: When does our Datadog SLA contract expire?
+expect:
+  answer_contains_any:
+  - December 2026

@@ -1,0 +1,15 @@
+id: supersede-13-cloud-storage
+category: supersede_update
+setup:
+- content: We store backups in AWS S3 Standard.
+  occurred_at: -45d
+- content: We migrated our database backups to Cloudflare R2 for zero egress fees.
+  occurred_at: -3d
+query:
+  text: Where do we store database backups?
+expect:
+  answer_contains_any:
+  - Cloudflare R2
+  - R2
+  cites_setup:
+  - 1

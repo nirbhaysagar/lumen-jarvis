@@ -1,0 +1,17 @@
+id: supersede-08-phone-upgrade
+category: supersede_update
+setup:
+- content: I use an iPhone 13 Mini as my personal phone.
+  occurred_at: -80d
+- content: I bought a Google Pixel 9 Pro to replace my old iPhone.
+  occurred_at: -8d
+query:
+  text: What is my current personal smartphone?
+expect:
+  answer_contains_any:
+  - Pixel 9 Pro
+  - Google Pixel
+  answer_excludes_any:
+  - iPhone 13
+  cites_setup:
+  - 1

@@ -1,0 +1,9 @@
+id: abstain-08-pet-cat
+category: abstention
+setup:
+- content: My golden retriever is named Barnaby.
+  occurred_at: -7d
+query:
+  text: What is the name of my pet cat?
+expect:
+  abstain: true

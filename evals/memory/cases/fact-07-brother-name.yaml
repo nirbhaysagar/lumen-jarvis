@@ -1,0 +1,13 @@
+id: fact-07-brother-name
+category: fact_retrieval
+setup:
+- content: My younger brother Anshul is studying computer science at IIT Delhi.
+  occurred_at: -30d
+query:
+  text: What is my brother's name and college?
+expect:
+  answer_contains_any:
+  - Anshul
+  - IIT Delhi
+  cites_setup:
+  - 0

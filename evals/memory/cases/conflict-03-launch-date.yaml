@@ -1,0 +1,15 @@
+id: conflict-03-launch-date
+category: cross_speaker_conflict
+setup:
+- content: Our official public launch date is December 15.
+  occurred_at: -8d
+  speaker: user
+- content: Product manager Priya thinks we should delay launch to January 20.
+  occurred_at: -2d
+  speaker: Priya
+query:
+  text: What is our scheduled launch date?
+expect:
+  answer_contains_any:
+  - December 15
+  review_queue_staged: true

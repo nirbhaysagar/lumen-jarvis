@@ -1,0 +1,13 @@
+id: temporal-03-old-editor
+category: temporal_validity
+setup:
+- content: I used VS Code during 2024.
+  occurred_at: -150d
+- content: I switched to Neovim in late 2025.
+  occurred_at: -20d
+query:
+  text: What editor did I use back in mid 2024?
+  as_of: -140d
+expect:
+  answer_contains_any:
+  - VS Code

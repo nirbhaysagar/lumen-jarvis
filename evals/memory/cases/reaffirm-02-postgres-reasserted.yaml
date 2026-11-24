@@ -1,0 +1,13 @@
+id: reaffirm-02-postgres-reasserted
+category: reaffirmation
+setup:
+- content: Lumen uses PostgreSQL 17 as its primary database.
+  occurred_at: -8d
+- content: Postgres 17 continues to be Lumen primary database in production.
+  occurred_at: -2d
+query:
+  text: What is Lumen primary database?
+expect:
+  answer_contains_any:
+  - Postgres
+  - PostgreSQL 17

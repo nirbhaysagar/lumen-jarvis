@@ -1,0 +1,14 @@
+id: fact-15-running-goal
+category: fact_retrieval
+setup:
+- content: I am training for the Bengaluru Half Marathon with a target time under
+    1h 45m.
+  occurred_at: -8d
+query:
+  text: What race am I training for?
+expect:
+  answer_contains_any:
+  - Bengaluru Half Marathon
+  - Half Marathon
+  cites_setup:
+  - 0

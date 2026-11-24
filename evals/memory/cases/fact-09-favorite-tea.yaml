@@ -1,0 +1,13 @@
+id: fact-09-favorite-tea
+category: fact_retrieval
+setup:
+- content: In the afternoons I always brew Japanese Sencha green tea.
+  occurred_at: -4d
+query:
+  text: What tea do I like in the afternoon?
+expect:
+  answer_contains_any:
+  - Sencha
+  - green tea
+  cites_setup:
+  - 0

@@ -1,0 +1,12 @@
+id: reaffirm-06-ghostty-reasserted
+category: reaffirmation
+setup:
+- content: Ghostty is my daily terminal.
+  occurred_at: -9d
+- content: Ghostty terminal is so fast and smooth.
+  occurred_at: -3d
+query:
+  text: What terminal do I like?
+expect:
+  answer_contains_any:
+  - Ghostty

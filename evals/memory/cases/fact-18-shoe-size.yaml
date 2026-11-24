@@ -1,0 +1,13 @@
+id: fact-18-shoe-size
+category: fact_retrieval
+setup:
+- content: My running shoes are UK size 10.
+  occurred_at: -9d
+query:
+  text: What shoe size do I wear for running?
+expect:
+  answer_contains_any:
+  - '10'
+  - UK 10
+  cites_setup:
+  - 0

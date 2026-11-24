@@ -1,0 +1,13 @@
+id: reaffirm-05-black-coffee-reasserted
+category: reaffirmation
+setup:
+- content: I only drink black coffee without sugar.
+  occurred_at: -7d
+- content: Enjoying another cup of hot black coffee.
+  occurred_at: -1d
+query:
+  text: Do I take sugar in my coffee?
+expect:
+  answer_contains_any:
+  - black
+  - without sugar

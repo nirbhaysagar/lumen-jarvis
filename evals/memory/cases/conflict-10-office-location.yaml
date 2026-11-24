@@ -1,0 +1,15 @@
+id: conflict-10-office-location
+category: cross_speaker_conflict
+setup:
+- content: Our main engineering hub is located in Indiranagar Bengaluru.
+  occurred_at: -25d
+  speaker: user
+- content: Recruiter Tanya suggested opening our primary hub in HSR Layout.
+  occurred_at: -5d
+  speaker: Tanya
+query:
+  text: Where is our main engineering hub?
+expect:
+  answer_contains_any:
+  - Indiranagar
+  review_queue_staged: true

@@ -1,0 +1,15 @@
+id: conflict-09-license-choice
+category: cross_speaker_conflict
+setup:
+- content: We chose Apache 2.0 license for our open core SDK.
+  occurred_at: -20d
+  speaker: user
+- content: Legal counsel advised switching the SDK to AGPLv3.
+  occurred_at: -4d
+  speaker: Legal
+query:
+  text: What license did we choose for our SDK?
+expect:
+  answer_contains_any:
+  - Apache
+  review_queue_staged: true

@@ -1,0 +1,9 @@
+id: abstain-15-medical-history
+category: abstention
+setup:
+- content: I drink Sencha green tea and black coffee.
+  occurred_at: -4d
+query:
+  text: Have I ever had surgery?
+expect:
+  abstain: true

@@ -1,0 +1,13 @@
+id: fact-05-project-db
+category: fact_retrieval
+setup:
+- content: Lumen uses PostgreSQL 17 with pgvector for memory persistence.
+  occurred_at: -7d
+query:
+  text: What database does Lumen use?
+expect:
+  answer_contains_any:
+  - PostgreSQL 17
+  - Postgres
+  cites_setup:
+  - 0

@@ -1,0 +1,17 @@
+id: supersede-02-db-upgrade
+category: supersede_update
+setup:
+- content: Lumen runs on PostgreSQL 16.
+  occurred_at: -20d
+- content: We upgraded Lumen primary database to PostgreSQL 17.
+  occurred_at: -3d
+query:
+  text: What PostgreSQL version does Lumen use?
+expect:
+  answer_contains_any:
+  - '17'
+  - PostgreSQL 17
+  answer_excludes_any:
+  - PostgreSQL 16
+  cites_setup:
+  - 1

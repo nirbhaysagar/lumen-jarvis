@@ -1,0 +1,11 @@
+id: abstain-01-blood-group
+category: abstention
+setup:
+- content: I live in Bengaluru and code in Neovim.
+  occurred_at: -3d
+- content: Lumen uses PostgreSQL 17.
+  occurred_at: -2d
+query:
+  text: What is my blood group?
+expect:
+  abstain: true

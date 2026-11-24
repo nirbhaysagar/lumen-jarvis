@@ -1,0 +1,15 @@
+id: supersede-12-project-status
+category: supersede_update
+setup:
+- content: Project Apollo is in active development phase.
+  occurred_at: -60d
+- content: Project Apollo launched to general availability today.
+  occurred_at: -1d
+query:
+  text: What is the status of Project Apollo?
+expect:
+  answer_contains_any:
+  - general availability
+  - launched
+  cites_setup:
+  - 1

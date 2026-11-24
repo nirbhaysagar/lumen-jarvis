@@ -1,0 +1,12 @@
+id: temporal-07-past-company
+category: temporal_validity
+setup:
+- content: I worked at Microsoft from 2020 to 2023.
+  occurred_at: -90d
+- content: I joined CloudScale in 2023.
+  occurred_at: -30d
+query:
+  text: Where did I work prior to CloudScale?
+expect:
+  answer_contains_any:
+  - Microsoft

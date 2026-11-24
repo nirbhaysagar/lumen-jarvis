@@ -1,0 +1,12 @@
+id: fact-02-dog-name
+category: fact_retrieval
+setup:
+- content: My golden retriever is named Barnaby.
+  occurred_at: -10d
+query:
+  text: What is my dog's name?
+expect:
+  answer_contains_any:
+  - Barnaby
+  cites_setup:
+  - 0

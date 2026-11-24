@@ -1,0 +1,16 @@
+id: supersede-14-preferred-shell
+category: supersede_update
+setup:
+- content: I use bash as my login shell.
+  occurred_at: -90d
+- content: I changed my default shell to zsh with starship prompt.
+  occurred_at: -4d
+query:
+  text: What is my login shell?
+expect:
+  answer_contains_any:
+  - zsh
+  answer_excludes_any:
+  - bash
+  cites_setup:
+  - 1

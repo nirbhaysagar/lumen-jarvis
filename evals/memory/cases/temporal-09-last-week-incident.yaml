@@ -1,0 +1,11 @@
+id: temporal-09-last-week-incident
+category: temporal_validity
+setup:
+- content: Last week we suffered a 15-minute outage due to Redis OOM.
+  occurred_at: -7d
+query:
+  text: What caused the recent 15-minute outage?
+expect:
+  answer_contains_any:
+  - Redis OOM
+  - Redis

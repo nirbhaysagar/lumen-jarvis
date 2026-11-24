@@ -1,0 +1,9 @@
+id: abstain-13-guitar-amplifier
+category: abstention
+setup:
+- content: I play an acoustic Taylor 214ce guitar.
+  occurred_at: -8d
+query:
+  text: What guitar amplifier do I plug into?
+expect:
+  abstain: true

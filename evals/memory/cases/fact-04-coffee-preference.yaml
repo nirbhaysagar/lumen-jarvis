@@ -1,0 +1,13 @@
+id: fact-04-coffee-preference
+category: fact_retrieval
+setup:
+- content: I drink black pour-over coffee every morning.
+  occurred_at: -3d
+query:
+  text: How do I take my coffee?
+expect:
+  answer_contains_any:
+  - black
+  - pour-over
+  cites_setup:
+  - 0

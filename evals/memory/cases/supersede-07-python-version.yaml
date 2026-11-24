@@ -1,0 +1,17 @@
+id: supersede-07-python-version
+category: supersede_update
+setup:
+- content: Our microservices run on Python 3.10.
+  occurred_at: -50d
+- content: We upgraded all microservices to Python 3.12.
+  occurred_at: -7d
+query:
+  text: What Python version do we target for microservices?
+expect:
+  answer_contains_any:
+  - Python 3.12
+  - '3.12'
+  answer_excludes_any:
+  - '3.10'
+  cites_setup:
+  - 1

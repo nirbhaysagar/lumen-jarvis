@@ -1,0 +1,15 @@
+id: conflict-02-api-protocol
+category: cross_speaker_conflict
+setup:
+- content: I established gRPC as our inter-service communication protocol.
+  occurred_at: -10d
+  speaker: user
+- content: Vikas claims we should use GraphQL instead of gRPC.
+  occurred_at: -2d
+  speaker: Vikas
+query:
+  text: What RPC protocol did I establish?
+expect:
+  answer_contains_any:
+  - gRPC
+  review_queue_staged: true

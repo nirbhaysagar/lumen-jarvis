@@ -1,0 +1,9 @@
+id: abstain-04-favorite-color
+category: abstention
+setup:
+- content: I drive an electric Hyundai Ioniq 5.
+  occurred_at: -6d
+query:
+  text: What is my favorite color?
+expect:
+  abstain: true

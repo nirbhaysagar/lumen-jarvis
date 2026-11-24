@@ -1,0 +1,13 @@
+id: fact-06-keyboard-layout
+category: fact_retrieval
+setup:
+- content: I type on a Corne split mechanical keyboard with Colemak-DH layout.
+  occurred_at: -15d
+query:
+  text: What keyboard layout do I use?
+expect:
+  answer_contains_any:
+  - Colemak
+  - Corne
+  cites_setup:
+  - 0

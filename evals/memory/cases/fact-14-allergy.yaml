@@ -1,0 +1,13 @@
+id: fact-14-allergy
+category: fact_retrieval
+setup:
+- content: I am allergic to peanuts and carry an EpiPen.
+  occurred_at: -60d
+query:
+  text: Do I have any food allergies?
+expect:
+  answer_contains_any:
+  - peanuts
+  - allergic
+  cites_setup:
+  - 0

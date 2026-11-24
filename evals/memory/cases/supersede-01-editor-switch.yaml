@@ -1,0 +1,16 @@
+id: supersede-01-editor-switch
+category: supersede_update
+setup:
+- content: I use VS Code for coding.
+  occurred_at: -30d
+- content: I switched from VS Code to Neovim as my main editor.
+  occurred_at: -2d
+query:
+  text: What is my current code editor?
+expect:
+  answer_contains_any:
+  - Neovim
+  answer_excludes_any:
+  - VS Code
+  cites_setup:
+  - 1

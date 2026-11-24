@@ -1,0 +1,13 @@
+id: fact-08-laptop-hardware
+category: fact_retrieval
+setup:
+- content: My development machine is an Apple MacBook Air M3 with 16GB unified memory.
+  occurred_at: -12d
+query:
+  text: What laptop hardware do I have?
+expect:
+  answer_contains_any:
+  - MacBook Air M3
+  - 16GB
+  cites_setup:
+  - 0

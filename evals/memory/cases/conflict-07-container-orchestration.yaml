@@ -1,0 +1,16 @@
+id: conflict-07-container-orchestration
+category: cross_speaker_conflict
+setup:
+- content: We run production on Amazon ECS Fargate for simplicity.
+  occurred_at: -15d
+  speaker: user
+- content: Consultant Dave strongly advised switching to self-managed Kubernetes.
+  occurred_at: -3d
+  speaker: Dave
+query:
+  text: What container platform do we use in production?
+expect:
+  answer_contains_any:
+  - ECS
+  - Fargate
+  review_queue_staged: true

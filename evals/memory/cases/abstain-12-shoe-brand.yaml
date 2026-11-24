@@ -1,0 +1,9 @@
+id: abstain-12-shoe-brand
+category: abstention
+setup:
+- content: My running shoes are UK size 10.
+  occurred_at: -11d
+query:
+  text: What brand of running shoes do I wear?
+expect:
+  abstain: true

@@ -1,0 +1,13 @@
+id: fact-13-guitar-hobby
+category: fact_retrieval
+setup:
+- content: On weekends I practice fingerstyle guitar on my Taylor 214ce.
+  occurred_at: -6d
+query:
+  text: What acoustic guitar do I play?
+expect:
+  answer_contains_any:
+  - Taylor 214ce
+  - guitar
+  cites_setup:
+  - 0

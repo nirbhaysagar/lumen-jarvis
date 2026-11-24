@@ -1,0 +1,12 @@
+id: reaffirm-01-neovim-reasserted
+category: reaffirmation
+setup:
+- content: I love coding in Neovim.
+  occurred_at: -10d
+- content: Still using Neovim every single day, best editor.
+  occurred_at: -1d
+query:
+  text: What editor do I use?
+expect:
+  answer_contains_any:
+  - Neovim

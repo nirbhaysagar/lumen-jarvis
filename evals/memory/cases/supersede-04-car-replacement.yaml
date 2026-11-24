@@ -1,0 +1,17 @@
+id: supersede-04-car-replacement
+category: supersede_update
+setup:
+- content: I drive a Honda Civic.
+  occurred_at: -100d
+- content: I sold my Civic and bought a Hyundai Ioniq 5 electric car.
+  occurred_at: -10d
+query:
+  text: What car do I have now?
+expect:
+  answer_contains_any:
+  - Ioniq 5
+  - Hyundai
+  answer_excludes_any:
+  - Honda Civic
+  cites_setup:
+  - 1

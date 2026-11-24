@@ -1,0 +1,15 @@
+id: conflict-06-state-management
+category: cross_speaker_conflict
+setup:
+- content: I decided to use Zustand for lightweight frontend state management.
+  occurred_at: -9d
+  speaker: user
+- content: Frontend lead Sneha wants to introduce Redux Toolkit.
+  occurred_at: -2d
+  speaker: Sneha
+query:
+  text: What state library did I choose?
+expect:
+  answer_contains_any:
+  - Zustand
+  review_queue_staged: true

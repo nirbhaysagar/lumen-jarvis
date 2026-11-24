@@ -1,0 +1,12 @@
+id: fact-12-mother-tongue
+category: fact_retrieval
+setup:
+- content: My mother tongue is Hindi and I also speak fluent English.
+  occurred_at: -50d
+query:
+  text: What is my native language?
+expect:
+  answer_contains_any:
+  - Hindi
+  cites_setup:
+  - 0

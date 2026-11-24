@@ -1,0 +1,13 @@
+id: code-07-work-sprint-goal
+category: code_and_work_lanes
+setup:
+- content: Our current sprint goal at CloudScale is optimizing p99 ingestion latency
+    under 200ms.
+  occurred_at: -5d
+query:
+  text: What is our current sprint objective at work?
+  context: work
+expect:
+  answer_contains_any:
+  - latency
+  - 200ms

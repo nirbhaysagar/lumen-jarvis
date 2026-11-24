@@ -1,0 +1,14 @@
+id: supersede-05-job-promotion
+category: supersede_update
+setup:
+- content: I am a Senior Software Engineer at Stripe.
+  occurred_at: -120d
+- content: I got promoted to Staff Engineer at Stripe.
+  occurred_at: -5d
+query:
+  text: What is my current role at Stripe?
+expect:
+  answer_contains_any:
+  - Staff Engineer
+  cites_setup:
+  - 1

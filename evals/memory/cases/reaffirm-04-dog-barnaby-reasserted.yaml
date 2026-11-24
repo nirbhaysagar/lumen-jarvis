@@ -1,0 +1,12 @@
+id: reaffirm-04-dog-barnaby-reasserted
+category: reaffirmation
+setup:
+- content: My golden retriever Barnaby is 3 years old.
+  occurred_at: -12d
+- content: Took my dog Barnaby for a walk in the park.
+  occurred_at: -1d
+query:
+  text: What is my dog's name?
+expect:
+  answer_contains_any:
+  - Barnaby

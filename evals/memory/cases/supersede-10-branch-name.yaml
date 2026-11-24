@@ -1,0 +1,16 @@
+id: supersede-10-branch-name
+category: supersede_update
+setup:
+- content: Our default git branch is named master.
+  occurred_at: -200d
+- content: We renamed our repository default branch to main.
+  occurred_at: -12d
+query:
+  text: What is our default git branch?
+expect:
+  answer_contains_any:
+  - main
+  answer_excludes_any:
+  - master
+  cites_setup:
+  - 1

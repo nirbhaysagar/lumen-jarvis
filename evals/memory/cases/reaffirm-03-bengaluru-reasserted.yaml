@@ -1,0 +1,13 @@
+id: reaffirm-03-bengaluru-reasserted
+category: reaffirmation
+setup:
+- content: I live in Indiranagar, Bengaluru.
+  occurred_at: -15d
+- content: Loving the weather here in Indiranagar Bengaluru today.
+  occurred_at: -2d
+query:
+  text: Where do I stay?
+expect:
+  answer_contains_any:
+  - Bengaluru
+  - Indiranagar

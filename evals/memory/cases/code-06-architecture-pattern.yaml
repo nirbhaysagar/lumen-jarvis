@@ -1,0 +1,11 @@
+id: code-06-architecture-pattern
+category: code_and_work_lanes
+setup:
+- content: Lumen persistence follows hexagonal architecture with adapters in app/adapters/.
+  occurred_at: -16d
+query:
+  text: What architectural pattern organizes Lumen adapters?
+  context: code
+expect:
+  answer_contains_any:
+  - hexagonal

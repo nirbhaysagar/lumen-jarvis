@@ -1,0 +1,14 @@
+id: supersede-15-sleep-schedule
+category: supersede_update
+setup:
+- content: I usually sleep at 1:00 AM.
+  occurred_at: -35d
+- content: I fixed my circadian rhythm and now sleep by 10:30 PM.
+  occurred_at: -5d
+query:
+  text: What time do I go to bed now?
+expect:
+  answer_contains_any:
+  - '10:30'
+  cites_setup:
+  - 1

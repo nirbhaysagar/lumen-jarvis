@@ -1,0 +1,10 @@
+id: temporal-10-future-deadline
+category: temporal_validity
+setup:
+- content: Our Q4 roadmap deadline is set for December 31 2026.
+  occurred_at: -14d
+query:
+  text: When is our Q4 roadmap due?
+expect:
+  answer_contains_any:
+  - December 31

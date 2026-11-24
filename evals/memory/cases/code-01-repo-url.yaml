@@ -1,0 +1,11 @@
+id: code-01-repo-url
+category: code_and_work_lanes
+setup:
+- content: Lumen core repository is hosted at github.com/forion/lumen.
+  occurred_at: -15d
+query:
+  text: What is the git repository URL for Lumen?
+  context: code
+expect:
+  answer_contains_any:
+  - github.com/forion/lumen

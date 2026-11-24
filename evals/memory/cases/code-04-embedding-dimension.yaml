@@ -1,0 +1,11 @@
+id: code-04-embedding-dimension
+category: code_and_work_lanes
+setup:
+- content: The nomic-embed-text model generates 768-dimensional vector embeddings.
+  occurred_at: -14d
+query:
+  text: What is the vector dimension of nomic-embed-text?
+  context: code
+expect:
+  answer_contains_any:
+  - '768'

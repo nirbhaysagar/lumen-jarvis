@@ -1,0 +1,9 @@
+id: abstain-11-gym-trainer
+category: abstention
+setup:
+- content: I work out at Gold's Gym.
+  occurred_at: -6d
+query:
+  text: What is the name of my personal trainer at Gold's Gym?
+expect:
+  abstain: true
