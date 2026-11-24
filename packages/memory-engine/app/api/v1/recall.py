@@ -38,7 +38,8 @@ def get_recall_adapter(request: Request) -> PostgresRecallAdapter:
     if not pool:
         raise RuntimeError("Database pool not available in application state")
     embedding = getattr(request.app.state, "embedding", None)
-    return PostgresRecallAdapter(pool, embedding_adapter=embedding)
+    reranker = getattr(request.app.state, "reranker", None)
+    return PostgresRecallAdapter(pool, embedding_adapter=embedding, reranker=reranker)
 
 
 @router.post("/recall", response_model=RecallResponse)

@@ -19,6 +19,7 @@ from app.api.v1.capture import router as capture_router
 from app.api.v1.extract import router as extract_router
 from app.api.v1.recall import router as recall_router
 from app.api.v1.outbox import router as outbox_router
+from app.api.v1.context import router as context_router
 
 
 @asynccontextmanager
@@ -110,6 +111,7 @@ app.include_router(capture_router)
 app.include_router(extract_router)
 app.include_router(recall_router)
 app.include_router(outbox_router)
+app.include_router(context_router)
 
 # Mount legacy router only if explicitly enabled
 if os.getenv("LUMEN_LEGACY_API") == "1":

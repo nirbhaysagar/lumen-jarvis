@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from typing import Any, List, Optional, Literal
 import asyncpg
 from app.domain.ports import EmbeddingPort
+from app.adapters.reranker import CrossEncoderReranker
 
 logger = logging.getLogger("lumen.memory.recall")
 
@@ -44,9 +45,15 @@ class RecallResult(list):
 
 
 class PostgresRecallAdapter:
-    def __init__(self, pool: asyncpg.Pool, embedding_adapter: Optional[EmbeddingPort] = None):
+    def __init__(
+        self,
+        pool: asyncpg.Pool,
+        embedding_adapter: Optional[EmbeddingPort] = None,
+        reranker: Optional[CrossEncoderReranker] = None,
+    ):
         self.pool = pool
         self.embedding = embedding_adapter
+        self.reranker = reranker or CrossEncoderReranker()
 
     async def recall(
         self,
@@ -355,25 +362,110 @@ class PostgresRecallAdapter:
                 )
                 return RecallResult([], status="abstain", abstain_reason="no_candidates", trace_id=trace_id)
 
-            # Sort top-k memory IDs by combined RRF score
-            sorted_mids = sorted(rrf_scores.keys(), key=lambda mid: rrf_scores[mid], reverse=True)[:limit]
+            # Candidate pool for cross-encoder reranking (top 25 by RRF)
+            candidate_mids = sorted(rrf_scores.keys(), key=lambda mid: rrf_scores[mid], reverse=True)[:25]
 
-            # Fetch rich details for top memories (including bi-temporal validity)
+            # Fetch rich details for candidates (including bi-temporal validity & lifecycle signals)
             mem_rows = await conn.fetch(
                 """
                 SELECT m.id, m.lineage_id, m.version, m.type, m.epistemic, m.statement,
                        m.confidence, m.importance, m.recorded_at, m.status,
                        m.valid_from, m.valid_to,
                        sub.canonical_name AS subject_name,
-                       obj.canonical_name AS object_name
+                       obj.canonical_name AS object_name,
+                       COALESCE(ms.reaffirm_count, 0) AS reaffirm_count,
+                       COALESCE(ms.access_count, 0) AS access_count
                 FROM memories m
                 LEFT JOIN entities sub ON m.subject_id = sub.id
                 LEFT JOIN entities obj ON m.object_id = obj.id
+                LEFT JOIN memory_signals ms ON ms.lineage_id = m.lineage_id
                 WHERE m.id = ANY($1::uuid[])
                 """,
-                sorted_mids,
+                candidate_mids,
             )
             mem_map = {r["id"]: dict(r) for r in mem_rows}
+            valid_mids = [mid for mid in candidate_mids if mid in mem_map]
+
+            if not valid_mids:
+                latency_ms = int((time.monotonic() - start_time) * 1000)
+                await conn.execute(
+                    """
+                    INSERT INTO retrieval_traces (
+                        id, query, context_ids, as_of, plan, channels, fused, returned, latency_ms, created_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    """,
+                    trace_id,
+                    cleaned_query,
+                    [context_id],
+                    time_travel_at or valid_at or now_dt,
+                    json.dumps({"limit": limit, "threshold": threshold}),
+                    json.dumps({k: [str(x) for x in v] for k, v in channel_ranks.items()}),
+                    json.dumps([]),
+                    [],
+                    latency_ms,
+                    now_dt,
+                )
+                return RecallResult([], status="abstain", abstain_reason="no_candidates", trace_id=trace_id)
+
+            # Cross-encoder semantic reranking
+            statements = [mem_map[mid]["statement"] for mid in valid_mids]
+            rerank_scores = await self.reranker.rerank(cleaned_query, statements)
+            rerank_map = {mid: score for mid, score in zip(valid_mids, rerank_scores)}
+
+            # Fused score combining RRF + Cross-Encoder + Lifecycle Boost
+            max_rrf = max(rrf_scores[mid] for mid in valid_mids) if valid_mids else 1.0
+            combined_scores: dict[uuid.UUID, float] = {}
+
+            for mid in valid_mids:
+                m = mem_map[mid]
+                reaffirm_cnt = m.get("reaffirm_count", 0)
+                access_cnt = m.get("access_count", 0)
+
+                # Lifecycle reinforcement boost (reaffirmed + accessed memories prioritized)
+                lifecycle_boost = 1.0 + 0.1 * min(5, reaffirm_cnt) + 0.05 * min(10, access_cnt)
+
+                norm_rrf = rrf_scores[mid] / max_rrf if max_rrf > 0 else 0.0
+                r_score = rerank_map.get(mid, norm_rrf)
+
+                fused = (0.6 * r_score + 0.4 * norm_rrf) * lifecycle_boost
+                combined_scores[mid] = fused
+
+            # Sort candidate memories by fused score
+            sorted_mids = sorted(valid_mids, key=lambda mid: combined_scores[mid], reverse=True)
+            top_confidence = combined_scores[sorted_mids[0]] if sorted_mids else 0.0
+
+            # Calibrated threshold gate
+            if top_confidence < threshold:
+                latency_ms = int((time.monotonic() - start_time) * 1000)
+                await conn.execute(
+                    """
+                    INSERT INTO retrieval_traces (
+                        id, query, context_ids, as_of, plan, channels, fused, returned, latency_ms, created_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    """,
+                    trace_id,
+                    cleaned_query,
+                    [context_id],
+                    time_travel_at or valid_at or now_dt,
+                    json.dumps({"limit": limit, "threshold": threshold, "top_confidence": top_confidence}),
+                    json.dumps({k: [str(x) for x in v] for k, v in channel_ranks.items()}),
+                    json.dumps([{"id": str(m), "score": combined_scores[m]} for m in sorted_mids]),
+                    [],
+                    latency_ms,
+                    now_dt,
+                )
+                return RecallResult(
+                    [],
+                    status="abstain",
+                    abstain_reason="low_confidence",
+                    confidence=round(top_confidence, 4),
+                    trace_id=trace_id,
+                )
+
+            # Filter candidates meeting threshold and take top limit
+            final_mids = [mid for mid in sorted_mids if combined_scores[mid] >= threshold][:limit]
 
             # Fetch associated citations joined with events and sources
             cit_rows = await conn.fetch(
@@ -386,7 +478,7 @@ class PostgresRecallAdapter:
                 LEFT JOIN sources s ON e.source_id = s.id
                 WHERE c.memory_id = ANY($1::uuid[])
                 """,
-                sorted_mids,
+                final_mids,
             )
             cit_map: dict[uuid.UUID, list[dict[str, Any]]] = defaultdict(list)
             for c in cit_rows:
@@ -394,7 +486,7 @@ class PostgresRecallAdapter:
 
             # Assemble ranked results with citation IDs [M1], [M2]...
             results = []
-            for idx, mid in enumerate(sorted_mids):
+            for idx, mid in enumerate(final_mids):
                 m = mem_map.get(mid)
                 if not m:
                     continue
@@ -431,13 +523,27 @@ class PostgresRecallAdapter:
                         }
                         for c in cits
                     ],
-                    "score": round(rrf_scores[mid], 6),
+                    "score": round(combined_scores[mid], 6),
                 })
+
+            # Reinforce memory_signals access counts for retrieved memories
+            lineage_ids = [m["lineage_id"] for mid in final_mids if (m := mem_map.get(mid))]
+            for lid in set(lineage_ids):
+                await conn.execute(
+                    """
+                    INSERT INTO memory_signals (lineage_id, access_count, last_accessed_at)
+                    VALUES ($1, 1, now())
+                    ON CONFLICT (lineage_id) DO UPDATE SET
+                        access_count = memory_signals.access_count + 1,
+                        last_accessed_at = now()
+                    """,
+                    lid,
+                )
 
             # Record retrieval trace in DB
             latency_ms = int((time.monotonic() - start_time) * 1000)
             returned_uuids = [uuid.UUID(r["id"]) for r in results]
-            fused_list = [{"id": str(mid), "score": rrf_scores[mid]} for mid in sorted_mids]
+            fused_list = [{"id": str(mid), "score": combined_scores[mid]} for mid in final_mids]
             await conn.execute(
                 """
                 INSERT INTO retrieval_traces (
