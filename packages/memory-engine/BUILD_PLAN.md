@@ -261,9 +261,9 @@ Estimates are focused days for one developer working with an IDE agent.
 | ☑ | F2 | "Actually it's X" correction through lineage | 1.0 |
 | ☑ | **D1** | **Directives: the procedural memory tier (from the old repo)** | 1.0 |
 | | **Phase 2.5** | **MCP, portability, ingestion** | **~3.5 d** |
-| ☐ | P1 | MCP over stdio and streamable HTTP: remember, recall, context, forget, correct, timeline, directives | 1.0 |
-| ☐ | **X1** | **Export, import and replay (round-trip, encrypted backup)** | 1.0 |
-| ☐ | **I1** | **Ingest anything: PDF, Markdown, web, YouTube, spreadsheet** | 1.5 |
+| ☑ | P1 | MCP over stdio and streamable HTTP: remember, recall, context, forget, correct, timeline, directives | 1.0 |
+| ☑ | **X1** | **Export, import and replay (round-trip, encrypted backup)** | 1.0 |
+| ☑ | **I1** | **Ingest anything: PDF, Markdown, web, YouTube, spreadsheet** | 1.5 |
 | | **Phase 2.7** | **Obsidian two-way vault, graph and timeline** | **~5 d** |
 | ☑ | O1 | Vault projection v2 from the new schema (entity, memory and daily notes, real wikilinks and backlinks) | 1.5 |
 | ☑ | O2 | Vault → engine sync: edits become lineage corrections, with conflict handling | 1.5 |
