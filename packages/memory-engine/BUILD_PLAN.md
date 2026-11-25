@@ -257,9 +257,9 @@ Estimates are focused days for one developer working with an IDE agent.
 | ☐ | V1 | Browse, history, trace, PATCH and DELETE API | 1.0 |
 | ☐ | V2 | Viewer UI (cards, citations, lineage, forget and correct, review inbox). **v3:** the old repo's screens (entity page, merge proposals, import drop zone, streaming Ask, context switcher) | 2.5 |
 | | **Phase 2** | **Conversational forget and correct, plus directives** | **~3 d** |
-| ☐ | F1 | Forget through lineage (retract, redact, undo) | 1.0 |
-| ☐ | F2 | "Actually it's X" correction through lineage | 1.0 |
-| ☐ | **D1** | **Directives: the procedural memory tier (from the old repo)** | 1.0 |
+| ☑ | F1 | Forget through lineage (retract, redact, undo) | 1.0 |
+| ☑ | F2 | "Actually it's X" correction through lineage | 1.0 |
+| ☑ | **D1** | **Directives: the procedural memory tier (from the old repo)** | 1.0 |
 | | **Phase 2.5** | **MCP, portability, ingestion** | **~3.5 d** |
 | ☐ | P1 | MCP over stdio and streamable HTTP: remember, recall, context, forget, correct, timeline, directives | 1.0 |
 | ☐ | **X1** | **Export, import and replay (round-trip, encrypted backup)** | 1.0 |

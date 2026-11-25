@@ -21,3 +21,13 @@ class ExtractionError(Exception):
         self.raw = raw
         self.attempt = attempt
         self.latency_ms = latency_ms
+
+
+class NotFoundError(Exception):
+    """Raised when a requested resource (memory, lineage, directive) does not exist."""
+    pass
+
+
+class ConflictError(Exception):
+    """Raised when a concurrent modification or stale version conflict is detected."""
+    pass

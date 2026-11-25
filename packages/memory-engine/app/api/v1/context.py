@@ -42,6 +42,7 @@ class ContextPack(BaseModel):
     abstain_reason: Optional[str] = None
     confidence: Optional[float] = None
     trace_id: uuid.UUID
+    directives: List[dict[str, Any]] = Field(default_factory=list)
     verified_facts: List[str]
     citations: List[CitationItem]
     relevant_memories: List[dict[str, Any]]
@@ -58,29 +59,48 @@ def assemble_prompt_injection(
     facts: list[str],
     citations: list[CitationItem],
     status: str,
+    directives: Optional[list[dict[str, Any]]] = None,
 ) -> str:
-    """Renders the markdown prompt injection block enforcing strict citation grounding."""
+    """Renders the markdown prompt injection block enforcing strict citation grounding and procedural directives."""
+    sections = []
+
+    # 1. Procedural Directives Tier (Highest Priority)
+    if directives:
+        d_lines = [
+            "## Operating Directives & Guidelines",
+            "You MUST strictly adhere to the following user rules and operational constraints:",
+        ]
+        for idx, d in enumerate(directives):
+            d_type = d.get("directive_type") or "rule"
+            priority = d.get("priority", 5)
+            body = d.get("body") or d.get("title", "")
+            d_lines.append(f"- [D{idx+1}] ({d_type}, priority {priority}): {body}")
+        sections.append("\n".join(d_lines))
+
+    # 2. Recalled Long-Term Memories
     if status == "abstain" or not facts:
-        return (
+        sections.append(
             "## Recalled Long-Term Memories\n"
-            "[No verified memories met confidence threshold. If asked about unknown personal facts, you MUST state honestly: 'I do not have memory of this.']\n"
+            "[No verified memories met confidence threshold. If asked about unknown personal facts, you MUST state honestly: 'I do not have memory of this.']"
         )
+    else:
+        m_lines = [
+            "## Recalled Long-Term Memories",
+            "The following verified facts were retrieved from user memory:",
+        ]
+        for fact in facts:
+            m_lines.append(f"- {fact}")
 
-    lines = [
-        "## Recalled Long-Term Memories",
-        "The following verified facts were retrieved from user memory:",
-    ]
-    for fact in facts:
-        lines.append(f"- {fact}")
+        m_lines.extend([
+            "",
+            "### Grounding Instructions:",
+            "1. Answer the user's inquiry based STRICTLY on the verified facts above.",
+            "2. You MUST cite the source tag (e.g. [M1], [M2]) for any factual statement made.",
+            "3. If the memories above do not contain the answer, state honestly: 'I do not have memory of this.'",
+        ])
+        sections.append("\n".join(m_lines))
 
-    lines.extend([
-        "",
-        "### Grounding Instructions:",
-        "1. Answer the user's inquiry based STRICTLY on the verified facts above.",
-        "2. You MUST cite the source tag (e.g. [M1], [M2]) for any factual statement made.",
-        "3. If the memories above do not contain the answer, state honestly: 'I do not have memory of this.'",
-    ])
-    return "\n".join(lines)
+    return "\n\n".join(sections)
 
 
 @router.post("/context", response_model=ContextPack)
@@ -88,6 +108,14 @@ async def generate_context_pack(
     req: ContextRequest,
     adapter: PostgresRecallAdapter = Depends(get_recall_adapter),
 ) -> ContextPack:
+    # 0. Fetch active procedural directives
+    from app.services.directives import DirectivesService
+    directives_svc = DirectivesService(adapter.pool)
+    async with adapter.pool.acquire() as conn:
+        ctx_row = await conn.fetchrow("SELECT id FROM contexts WHERE slug = $1", req.context)
+        ctx_id = ctx_row["id"] if ctx_row else None
+    active_directives = await directives_svc.list_directives(context_id=ctx_id, status="active", limit=15)
+
     # 1. Fetch recalled memories with reranking
     recalled = await adapter.recall(
         query=req.query,
@@ -104,13 +132,14 @@ async def generate_context_pack(
     confidence = getattr(recalled, "confidence", None)
 
     if status == "abstain" or not recalled:
-        empty_injection = assemble_prompt_injection([], [], "abstain")
+        empty_injection = assemble_prompt_injection([], [], "abstain", directives=active_directives)
         return ContextPack(
             query=req.query,
             status="abstain",
             abstain_reason=abstain_reason,
             confidence=confidence,
             trace_id=trace_id,
+            directives=active_directives,
             verified_facts=[],
             citations=[],
             relevant_memories=[],
@@ -143,7 +172,7 @@ async def generate_context_pack(
         # Check candidate prompt length if added
         cand_facts = packed_facts + [fact_line]
         cand_citations = packed_citations + mem_citations
-        cand_injection = assemble_prompt_injection(cand_facts, cand_citations, "ok")
+        cand_injection = assemble_prompt_injection(cand_facts, cand_citations, "ok", directives=active_directives)
         cand_tokens = estimate_tokens(cand_injection)
 
         if cand_tokens <= req.budget_tokens or len(packed_memories) == 0:
@@ -153,7 +182,7 @@ async def generate_context_pack(
         else:
             break
 
-    final_injection = assemble_prompt_injection(packed_facts, packed_citations, "ok")
+    final_injection = assemble_prompt_injection(packed_facts, packed_citations, "ok", directives=active_directives)
     total_tokens = estimate_tokens(final_injection)
 
     return ContextPack(
@@ -162,6 +191,7 @@ async def generate_context_pack(
         abstain_reason=None,
         confidence=confidence,
         trace_id=trace_id,
+        directives=active_directives,
         verified_facts=packed_facts,
         citations=packed_citations,
         relevant_memories=packed_memories,

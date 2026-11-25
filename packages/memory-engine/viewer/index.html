@@ -770,6 +770,9 @@
         <button class="tab-btn" onclick="switchTab('graph')">
             <span>🕸️</span> Knowledge Graph
         </button>
+        <button class="tab-btn" onclick="switchTab('directives')">
+            <span>📜</span> Directives
+        </button>
     </nav>
 
     <!-- Main Content Area -->
@@ -895,6 +898,24 @@
             </div>
         </section>
 
+        <!-- TAB 6: Directives & Procedural Memory -->
+        <section id="tab-directives" class="tab-pane">
+            <div class="filter-bar" style="justify-content: space-between;">
+                <div style="display: flex; gap: 12px; align-items: center; flex: 1;">
+                    <span style="font-size: 14px; font-weight: 600;">Procedural Memory Tier</span>
+                    <span id="directivesCountBadge" class="badge badge-lane-personal">0 active directives (max 15)</span>
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button class="action-btn" onclick="loadDirectives()">🔄 Refresh</button>
+                    <button class="action-btn btn-primary" onclick="openCreateDirectiveModal()">➕ New Directive</button>
+                </div>
+            </div>
+
+            <div id="directivesList" class="cards-grid" style="margin-top: 16px;">
+                <!-- Populated dynamically -->
+            </div>
+        </section>
+
     </main>
 
     <!-- Modal: API Token Config -->
@@ -951,6 +972,44 @@
             <div class="modal-footer">
                 <button class="action-btn" onclick="closeEditModal()">Cancel</button>
                 <button class="action-btn btn-primary" onclick="submitMemoryCorrection()">Save New Version</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Create Directive -->
+    <div id="directiveModal" class="modal-overlay">
+        <div class="modal-card">
+            <div class="modal-title">New Procedural Directive</div>
+            <p style="font-size: 12px; color: var(--text-muted); line-height: 1.4;">
+                Directives form the procedural memory tier of Lumen. They are injected at the very top of context packs to enforce operational guidelines, constraints, and user preferences.
+            </p>
+            <div class="form-group">
+                <label class="form-label">Title / Short Label</label>
+                <input type="text" id="directiveTitle" class="form-input" placeholder="e.g. Concise Responses">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Directive Instruction (Body)</label>
+                <textarea id="directiveBody" class="form-textarea" rows="3" placeholder="e.g. Always respond in concise bullet points and cite source tags..."></textarea>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div class="form-group">
+                    <label class="form-label">Type</label>
+                    <select id="directiveType" class="form-select">
+                        <option value="preference">Preference</option>
+                        <option value="constraint">Constraint</option>
+                        <option value="goal">Goal</option>
+                        <option value="style">Style</option>
+                        <option value="context">Context</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Priority (1-10)</label>
+                    <input type="number" id="directivePriority" class="form-input" min="1" max="10" value="5">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="action-btn" onclick="closeDirectiveModal()">Cancel</button>
+                <button class="action-btn btn-primary" onclick="submitCreateDirective()">Save Directive</button>
             </div>
         </div>
     </div>
@@ -1039,6 +1098,7 @@
             else if (state.activeTab === "review") loadReviewQueue();
             else if (state.activeTab === "retrieval") loadRecentTraces();
             else if (state.activeTab === "graph") loadGraphData();
+            else if (state.activeTab === "directives") loadDirectives();
         }
 
         // Token Management
@@ -1806,6 +1866,114 @@
                 .replace(/>/g, "&gt;")
                 .replace(/"/g, "&quot;")
                 .replace(/'/g, "&#039;");
+        }
+
+        // 8. Directives & Procedural Memory
+        async function loadDirectives() {
+            try {
+                const res = await apiFetch("/v1/directives");
+                const directives = res.directives || [];
+                const badge = document.getElementById("directivesCountBadge");
+                if (badge) badge.textContent = `${directives.length} active directives (max 15)`;
+                renderDirectives(directives);
+            } catch (err) {
+                console.warn("Failed to load directives", err);
+            }
+        }
+
+        function renderDirectives(directives) {
+            const list = document.getElementById("directivesList");
+            if (!list) return;
+            if (!directives || directives.length === 0) {
+                list.innerHTML = `
+                    <div class="empty-state" style="grid-column: 1 / -1;">
+                        <span style="font-size: 32px;">📜</span>
+                        <div style="font-weight: 600; font-size: 15px;">No active directives</div>
+                        <p style="color: var(--text-muted); font-size: 13px;">Add procedural rules, preferences, and constraints for the AI agent.</p>
+                        <button class="action-btn btn-primary" onclick="openCreateDirectiveModal()" style="margin-top: 10px;">Create Directive</button>
+                    </div>
+                `;
+                return;
+            }
+
+            list.innerHTML = directives.map(d => `
+                <div class="memory-card" style="border-left: 3px solid ${d.pinned ? 'var(--accent)' : 'var(--border)'};">
+                    <div class="card-header">
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <span class="badge" style="background: var(--surface-elevated); border: 1px solid var(--border); font-family: monospace;">P${d.priority}</span>
+                            <span class="badge badge-lane-work">${escapeHtml(d.directive_type)}</span>
+                            ${d.pinned ? '<span style="color: var(--accent); font-size: 12px;">📌 Pinned</span>' : ''}
+                        </div>
+                        <span style="font-size: 11px; color: var(--text-muted); font-family: monospace;">${d.id.slice(0, 8)}</span>
+                    </div>
+                    <div style="font-weight: 600; font-size: 14px; color: var(--text); margin-bottom: 6px;">
+                        ${escapeHtml(d.title)}
+                    </div>
+                    <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.5; white-space: pre-wrap;">
+                        ${escapeHtml(d.body)}
+                    </div>
+                    <div class="card-actions" style="margin-top: 12px;">
+                        <button class="action-btn" onclick="togglePinDirective('${d.id}')">${d.pinned ? 'Unpin' : 'Pin'}</button>
+                        <button class="action-btn" onclick="deleteDirective('${d.id}')" style="color: var(--error);">Retract</button>
+                    </div>
+                </div>
+            `).join("");
+        }
+
+        function openCreateDirectiveModal() {
+            document.getElementById("directiveTitle").value = "";
+            document.getElementById("directiveBody").value = "";
+            document.getElementById("directivePriority").value = "5";
+            document.getElementById("directiveModal").classList.add("open");
+        }
+
+        function closeDirectiveModal() {
+            document.getElementById("directiveModal").classList.remove("open");
+        }
+
+        async function submitCreateDirective() {
+            const title = document.getElementById("directiveTitle").value.trim();
+            const body = document.getElementById("directiveBody").value.trim();
+            const directive_type = document.getElementById("directiveType").value;
+            const priority = parseInt(document.getElementById("directivePriority").value, 10);
+
+            if (!title || !body) {
+                showToast("Please provide both a title and instruction body.", "error");
+                return;
+            }
+
+            try {
+                await apiFetch("/v1/directives", {
+                    method: "POST",
+                    body: { title, body, directive_type, priority }
+                });
+                closeDirectiveModal();
+                showToast("Directive created successfully", "success");
+                loadDirectives();
+            } catch (err) {
+                showToast(`Failed to create directive: ${err.message}`, "error");
+            }
+        }
+
+        async function togglePinDirective(id) {
+            try {
+                await apiFetch(`/v1/directives/${id}/pin`, { method: "POST" });
+                showToast("Directive pin status updated", "success");
+                loadDirectives();
+            } catch (err) {
+                showToast(`Failed to toggle pin: ${err.message}`, "error");
+            }
+        }
+
+        async function deleteDirective(id) {
+            if (!confirm("Are you sure you want to retract this procedural directive?")) return;
+            try {
+                await apiFetch(`/v1/directives/${id}`, { method: "DELETE" });
+                showToast("Directive retracted", "success");
+                loadDirectives();
+            } catch (err) {
+                showToast(`Failed to retract directive: ${err.message}`, "error");
+            }
         }
 
         // Auto-refresh interval
