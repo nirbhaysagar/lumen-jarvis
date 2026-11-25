@@ -55,15 +55,12 @@ class CrossEncoderReranker:
         if model is not None:
             try:
                 scores = list(model.rerank(query, list(documents)))
-                # Sigmoid normalize if raw logits returned
+                # This model returns a logit. A slight yes is +0.02, which
+                # sits inside [0, 1] and is not already a probability.
                 norm_scores = []
                 for s in scores:
-                    if 0.0 <= s <= 1.0:
-                        norm_scores.append(float(s))
-                    else:
-                        # Standard logistic sigmoid for logits
-                        sig = 1.0 / (1.0 + math.exp(-max(-20.0, min(20.0, float(s)))))
-                        norm_scores.append(round(sig, 4))
+                    sig = 1.0 / (1.0 + math.exp(-max(-20.0, min(20.0, float(s)))))
+                    norm_scores.append(round(sig, 4))
                 return norm_scores
             except Exception as e:
                 logger.debug(f"Cross-encoder inference error ({e}), falling back to lexical-semantic scoring.")

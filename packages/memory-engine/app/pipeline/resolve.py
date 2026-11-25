@@ -10,6 +10,7 @@ from typing import Sequence
 import uuid
 import asyncpg
 
+from app.domain.current_fact import current_statement
 from app.domain.decide import CandidateMemory, ExistingMemory, Decision, decide
 from app.domain.match import has_change_cue, pick_predecessor, statements_conflict
 from app.pipeline.contracts import ExtractedEntity, VerifiedMemory
@@ -270,6 +271,14 @@ async def resolve_decisions(
                     continue
                 if statements_conflict(row["statement"], mem.statement):
                     others_existing.append(_existing_from_row(row, row["subject_id"], row["predicate"]))
+
+        # Store the fact that is true now. The citation quote stays the
+        # transition sentence, so the evidence is still the user's words.
+        predecessor = own_existing.statement if own_existing else None
+        rewritten = current_statement(vm.quote or "", predecessor) or current_statement(mem.statement, predecessor)
+        if rewritten and rewritten != mem.statement:
+            mem.statement = rewritten
+            cand.statement = rewritten
 
         decision = decide(cand, own_existing, others_existing)
         resolved.append((vm, decision, subject_id, object_id))
