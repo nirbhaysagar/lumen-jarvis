@@ -270,10 +270,10 @@ Estimates are focused days for one developer working with an IDE agent.
 | ☑ | O3 | Graph and timeline view in the viewer | 1.5 |
 | ☑ | O4 | Daily notes and morning brief | 0.5 |
 | | **Phase 3** | **Lanes, sessions, consolidation, query understanding** | **~6 d** |
-| ☐ | L1 | `lane` column with a per-lane policy (decay per day, affects ranking only) | 1.0 |
-| ☐ | L2 | Session synopses and continuity | 1.0 |
-| ☐ | C1 | Nightly consolidation (dedupe, entity profiles, contradiction judge). **v3:** relation typing, sleep-worker synthesis, directive mining | 2.5 |
-| ☐ | Q1 | Query understanding (time ranges, decomposition, coreference). **v3:** the old repo's intent parser and a consensus intent | 1.5 |
+| ☑ | L1 | `lane` column with a per-lane policy (decay per day, affects ranking only) | 1.0 |
+| ☑ | L2 | Session synopses and continuity | 1.0 |
+| ☑ | C1 | Nightly consolidation (dedupe, entity profiles, contradiction judge). **v3:** relation typing, sleep-worker synthesis, directive mining | 2.5 |
+| ☑ | Q1 | Query understanding (time ranges, decomposition, coreference). **v3:** the old repo's intent parser and a consensus intent | 1.5 |
 | | **Launch** | Public LongMemEval and LoCoMo runs, `BENCHMARKS.md`, demo | 1.5 |
 | | **Total** | | **≈ 37.5 focused days** |
 

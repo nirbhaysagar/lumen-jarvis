@@ -20,6 +20,7 @@ from typing import Any, List, Optional, Literal
 import asyncpg
 from app.domain.ports import EmbeddingPort
 from app.adapters.reranker import CrossEncoderReranker
+from app.domain.lanes import compute_lane_decay_boost, load_lane_policies
 
 logger = logging.getLogger("lumen.memory.recall")
 
@@ -369,12 +370,13 @@ class PostgresRecallAdapter:
             mem_rows = await conn.fetch(
                 """
                 SELECT m.id, m.lineage_id, m.version, m.type, m.epistemic, m.statement,
-                       m.confidence, m.importance, m.recorded_at, m.status,
+                       m.confidence, m.importance, m.recorded_at, m.status, m.lane::text AS lane,
                        m.valid_from, m.valid_to,
                        sub.canonical_name AS subject_name,
                        obj.canonical_name AS object_name,
                        COALESCE(ms.reaffirm_count, 0) AS reaffirm_count,
-                       COALESCE(ms.access_count, 0) AS access_count
+                       COALESCE(ms.access_count, 0) AS access_count,
+                       ms.last_reaffirmed_at
                 FROM memories m
                 LEFT JOIN entities sub ON m.subject_id = sub.id
                 LEFT JOIN entities obj ON m.object_id = obj.id
@@ -413,9 +415,10 @@ class PostgresRecallAdapter:
             rerank_scores = await self.reranker.rerank(cleaned_query, statements)
             rerank_map = {mid: score for mid, score in zip(valid_mids, rerank_scores)}
 
-            # Fused score combining RRF + Cross-Encoder + Lifecycle Boost
+            # Fused score combining RRF + Cross-Encoder + Lifecycle Boost + Per-Lane Decay
             max_rrf = max(rrf_scores[mid] for mid in valid_mids) if valid_mids else 1.0
             combined_scores: dict[uuid.UUID, float] = {}
+            lane_policies = await load_lane_policies(conn)
 
             for mid in valid_mids:
                 m = mem_map[mid]
@@ -425,10 +428,15 @@ class PostgresRecallAdapter:
                 # Lifecycle reinforcement boost (reaffirmed + accessed memories prioritized)
                 lifecycle_boost = 1.0 + 0.1 * min(5, reaffirm_cnt) + 0.05 * min(10, access_cnt)
 
+                # Per-lane ranking-only decay
+                lane = m.get("lane") or "personal"
+                ref_time = m.get("last_reaffirmed_at") or m.get("valid_from") or m.get("recorded_at")
+                lane_decay = compute_lane_decay_boost(lane, ref_time, now=now_dt, policies=lane_policies)
+
                 norm_rrf = rrf_scores[mid] / max_rrf if max_rrf > 0 else 0.0
                 r_score = rerank_map.get(mid, norm_rrf)
 
-                fused = (0.6 * r_score + 0.4 * norm_rrf) * lifecycle_boost
+                fused = (0.6 * r_score + 0.4 * norm_rrf) * lifecycle_boost * lane_decay
                 combined_scores[mid] = fused
 
             # Sort candidate memories by fused score
