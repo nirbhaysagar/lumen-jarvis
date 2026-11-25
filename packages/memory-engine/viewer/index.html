@@ -817,15 +817,18 @@
             </div>
         </section>
 
-        <!-- TAB 2: Lineage Time Travel -->
+        <!-- TAB 2: Lineage Time Travel & Master Timeline -->
         <section id="tab-lineage" class="tab-pane">
-            <div class="filter-bar">
-                <input type="text" id="lineageSearchId" class="search-input" placeholder="Enter Lineage UUID (e.g. 550e8400-e29b-41d4-a716-446655440000)...">
-                <button class="action-btn btn-primary" onclick="loadLineageHistory()">Inspect Lineage</button>
+            <div class="filter-bar" style="justify-content: space-between;">
+                <div style="display: flex; gap: 12px; align-items: center; flex: 1;">
+                    <input type="text" id="lineageSearchId" class="search-input" placeholder="Search Lineage UUID, Entity name, or statement...">
+                    <button class="action-btn btn-primary" onclick="loadLineageOrTimeline()">Search Lineage</button>
+                    <button class="action-btn" onclick="loadAllTimeline()">Master Timeline</button>
+                </div>
             </div>
 
             <div id="lineageContent" class="lineage-container">
-                <div class="empty-state">Enter a Lineage ID above or click "Time Travel" on any memory card.</div>
+                <div class="empty-state">Enter an Entity or Lineage ID above or click "Master Timeline" to inspect version evolutions.</div>
             </div>
         </section>
 
@@ -868,12 +871,28 @@
 
         <!-- TAB 5: Knowledge Graph & In-Built Vault -->
         <section id="tab-graph" class="tab-pane">
-            <div class="filter-bar" style="justify-content: space-between;">
-                <div style="display: flex; gap: 12px; align-items: center; flex: 1;">
-                    <input type="text" id="graphSearchInput" class="search-input" placeholder="Search entity or memory node..." oninput="highlightGraphNode()">
-                    <span id="graphMetaLabel" style="font-size: 12px; color: var(--text-muted); font-family: monospace;">0 nodes • 0 edges</span>
+            <div class="filter-bar" style="justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+                <div style="display: flex; gap: 10px; align-items: center; flex: 1; min-width: 320px;">
+                    <input type="text" id="graphSearchInput" class="search-input" placeholder="Center on entity (e.g. Lumen, PostgreSQL)..." onkeydown="if(event.key==='Enter') loadGraphData()">
+                    <select id="graphDepthSelect" class="select-filter" style="width: 100px;" onchange="loadGraphData()">
+                        <option value="1">Depth 1</option>
+                        <option value="2" selected>Depth 2</option>
+                        <option value="3">Depth 3</option>
+                    </select>
+                    <select id="graphLaneSelect" class="select-filter" style="width: 110px;" onchange="loadGraphData()">
+                        <option value="">All Lanes</option>
+                        <option value="personal">Personal</option>
+                        <option value="work">Work</option>
+                        <option value="code">Code</option>
+                        <option value="chat">Chat</option>
+                    </select>
+                    <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted);">
+                        <span>as_of:</span>
+                        <input type="datetime-local" id="graphAsOfInput" class="select-filter" style="padding: 4px 8px; font-size: 11px;" onchange="loadGraphData()">
+                    </div>
                 </div>
-                <div style="display: flex; gap: 10px;">
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <span id="graphMetaLabel" style="font-size: 12px; color: var(--text-muted); font-family: monospace;">0 nodes • 0 edges</span>
                     <button class="action-btn" onclick="loadGraphData()">🔄 Reload Graph</button>
                     <button class="action-btn btn-primary" onclick="triggerVaultRebuild()">📁 Rebuild Vault on Disk</button>
                 </div>
@@ -1328,11 +1347,77 @@
             }
         }
 
-        // 4. Lineage Time Travel
+        // 4. Lineage Time Travel & Master Timeline
         function inspectLineage(lineageId) {
             document.getElementById("lineageSearchId").value = lineageId;
             switchTab("lineage");
             loadLineageHistory();
+        }
+
+        async function loadLineageOrTimeline() {
+            const val = document.getElementById("lineageSearchId")?.value?.trim() || "";
+            if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)) {
+                return loadLineageHistory();
+            }
+            return loadAllTimeline(val);
+        }
+
+        async function loadAllTimeline(filterEntity = "") {
+            const container = document.getElementById("lineageContent");
+            container.innerHTML = `<div class="empty-state">Loading timeline chronologies from /v1/timeline...</div>`;
+
+            try {
+                let url = "/v1/timeline?limit=100";
+                if (filterEntity) {
+                    url += `&entity=${encodeURIComponent(filterEntity)}`;
+                }
+                const res = await apiFetch(url);
+                const timeline = res.timeline || [];
+
+                if (timeline.length === 0) {
+                    container.innerHTML = `<div class="empty-state">No timeline events found${filterEntity ? ` for '${filterEntity}'` : ""}.</div>`;
+                    return;
+                }
+
+                // Group by lineage_id
+                const groups = {};
+                for (const item of timeline) {
+                    if (!groups[item.lineage_id]) groups[item.lineage_id] = [];
+                    groups[item.lineage_id].push(item);
+                }
+
+                const lineagesHtml = Object.entries(groups).map(([lid, versions]) => {
+                    const latest = versions[versions.length - 1];
+                    const shortLid = lid.slice(0, 8);
+
+                    return `
+                        <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-bottom: 20px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">
+                                <div>
+                                    <span style="font-weight: 700; font-size: 14px; color: var(--text);">Lineage: ${shortLid}</span>
+                                    <span style="font-size: 12px; color: var(--text-muted); margin-left: 8px;">${versions.length} versions</span>
+                                    ${latest.subject_name ? `<span class="badge" style="margin-left: 8px; background: rgba(56,189,248,0.1); color: #38bdf8;">${latest.subject_name}</span>` : ""}
+                                </div>
+                                <div>
+                                    <button class="action-btn" style="padding: 3px 8px; font-size: 11px;" onclick="inspectLineage('${lid}')">Detailed History ➔</button>
+                                </div>
+                            </div>
+                            <div class="timeline-stream">
+                                ${versions.map((v, idx) => renderTimelineNode(v, idx, versions.length)).join("")}
+                            </div>
+                        </div>
+                    `;
+                }).join("");
+
+                container.innerHTML = `
+                    <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center;">
+                        <span>Showing <strong>${timeline.length}</strong> memory versions across <strong>${Object.keys(groups).length}</strong> lineages${filterEntity ? ` (filtered: '${filterEntity}')` : ""}</span>
+                    </div>
+                    ${lineagesHtml}
+                `;
+            } catch (err) {
+                container.innerHTML = `<div class="empty-state" style="color: var(--danger)">Error loading timeline: ${err.message}</div>`;
+            }
         }
 
         async function loadLineageHistory() {
@@ -1591,9 +1676,19 @@
 
         async function loadGraphData() {
             try {
-                const data = await apiFetch("/v1/viewer/graph");
-                document.getElementById("graphMetaLabel").textContent = `${data.node_count} nodes • ${data.link_count} edges`;
-                initGraphSimulation(data.nodes || [], data.links || []);
+                const entity = document.getElementById("graphSearchInput")?.value?.trim() || "";
+                const depth = document.getElementById("graphDepthSelect")?.value || "2";
+                const lane = document.getElementById("graphLaneSelect")?.value || "";
+                const asOfVal = document.getElementById("graphAsOfInput")?.value;
+
+                let url = `/v1/graph?depth=${depth}`;
+                if (entity) url += `&entity=${encodeURIComponent(entity)}`;
+                if (lane) url += `&lane=${encodeURIComponent(lane)}`;
+                if (asOfVal) url += `&as_of=${encodeURIComponent(new Date(asOfVal).toISOString())}`;
+
+                const data = await apiFetch(url);
+                document.getElementById("graphMetaLabel").textContent = `${data.node_count} nodes • ${data.edge_count || data.link_count || 0} edges`;
+                initGraphSimulation(data.nodes || [], data.edges || data.links || []);
             } catch (err) {
                 console.warn("Failed to load graph data", err);
             }
@@ -1627,23 +1722,27 @@
             const nodes = rawNodes.map((n, i) => {
                 const angle = (i / Math.max(1, rawNodes.length)) * Math.PI * 2;
                 const radius = 120 + Math.random() * 80;
+                const degree = n.degree || 0;
+                const nodeRadius = Math.max(10, Math.min(26, 10 + degree * 2));
+                const nodeColor = n.kind === 'person' ? '#38bdf8' : n.kind === 'tool' ? '#34d399' : n.kind === 'org' ? '#fbbf24' : '#a855f7';
+
                 const node = {
                     ...n,
                     x: width / 2 + Math.cos(angle) * radius,
                     y: height / 2 + Math.sin(angle) * radius,
                     vx: 0,
                     vy: 0,
-                    radius: n.type === 'entity' ? 12 : 8,
-                    color: n.type === 'entity' ? '#38bdf8' : (n.lane === 'code' ? '#34d399' : '#a855f7')
+                    radius: nodeRadius,
+                    color: nodeColor
                 };
                 nodeMap.set(n.id, node);
                 return node;
             });
 
-            const links = rawLinks.map(l => ({
+            const links = (rawLinks || []).map(l => ({
                 source: nodeMap.get(l.source),
                 target: nodeMap.get(l.target),
-                label: l.label
+                label: l.type || l.label || "RELATION"
             })).filter(l => l.source && l.target);
 
             graphState.nodes = nodes;

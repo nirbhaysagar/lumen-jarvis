@@ -23,6 +23,7 @@ from app.api.v1.outbox import router as outbox_router
 from app.api.v1.context import router as context_router
 from app.api.v1.viewer import router as viewer_router
 from app.api.v1.directives import router as directives_router
+from app.api.v1.graph import router as graph_router
 
 VIEWER_HTML_PATH = Path(__file__).resolve().parent.parent / "viewer" / "index.html"
 
@@ -133,6 +134,7 @@ app.include_router(outbox_router)
 app.include_router(context_router)
 app.include_router(viewer_router)
 app.include_router(directives_router)
+app.include_router(graph_router)
 
 # Mount legacy router only if explicitly enabled
 if os.getenv("LUMEN_LEGACY_API") == "1":

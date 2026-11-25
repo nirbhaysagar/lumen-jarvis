@@ -265,10 +265,10 @@ Estimates are focused days for one developer working with an IDE agent.
 | ☐ | **X1** | **Export, import and replay (round-trip, encrypted backup)** | 1.0 |
 | ☐ | **I1** | **Ingest anything: PDF, Markdown, web, YouTube, spreadsheet** | 1.5 |
 | | **Phase 2.7** | **Obsidian two-way vault, graph and timeline** | **~5 d** |
-| ☐ | O1 | Vault projection v2 from the new schema (entity, memory and daily notes, real wikilinks and backlinks) | 1.5 |
-| ☐ | O2 | Vault → engine sync: edits become lineage corrections, with conflict handling | 1.5 |
-| ☐ | O3 | Graph and timeline view in the viewer | 1.5 |
-| ☐ | O4 | Daily notes and morning brief | 0.5 |
+| ☑ | O1 | Vault projection v2 from the new schema (entity, memory and daily notes, real wikilinks and backlinks) | 1.5 |
+| ☑ | O2 | Vault → engine sync: edits become lineage corrections, with conflict handling | 1.5 |
+| ☑ | O3 | Graph and timeline view in the viewer | 1.5 |
+| ☑ | O4 | Daily notes and morning brief | 0.5 |
 | | **Phase 3** | **Lanes, sessions, consolidation, query understanding** | **~6 d** |
 | ☐ | L1 | `lane` column with a per-lane policy (decay per day, affects ranking only) | 1.0 |
 | ☐ | L2 | Session synopses and continuity | 1.0 |
