@@ -1634,19 +1634,19 @@ Do these only after the memory engine launches. They must use memory only throug
 
 ## 6. Definition of done (the memory engine)
 
-- [ ] The Phase 0 exit gate passed: no personal data in git history, a loopback bind, a mandatory token, and no cloud calls in core.
-- [ ] Every save runs the 5-stage pipeline (§1.4), and every memory carries all 8 aspects, including lane and sensitivity. Unsupported memories are dropped with a reason in `save-report`.
-- [ ] Every capture becomes memories through the worker, and every failure is visible in review. Nothing fails silently.
-- [ ] Every recalled memory carries a verified quote, `said_at`, `valid_from/to` and its version. Unverified memories are never recalled as truth.
-- [ ] Abstention is calibrated on the reranker (τ in `calibration.json`), with ≥ 0.9 precision on held-out data.
-- [ ] The viewer has browse, detail, history, trace, correct, forget, undo, review, graph and timeline.
-- [ ] Conversational forget and correct work through lineage, with undo, and never silently overwrite.
-- [ ] The MCP server works over stdio and HTTP, is read-only by default, and is documented for Cursor and Claude Code.
-- [ ] The Obsidian vault is rebuildable and two-way, with entity-driven wikilinks, backlinks, daily notes and conflict files.
-- [ ] Lanes with ranking-only decay (per day, with floors), session synopses, nightly consolidation with a contradiction judge, and query understanding are all in place.
-- [ ] About 100 internal cases plus the LongMemEval and LoCoMo adapters run, with the CI gate on every PR and a nightly GPU run.
-- [ ] **v3 merge:** the context pack is used by Jarvis, the evals and MCP; directives are pinned and cited, and mined ones go to review; retrieval reinforcement is on (ranking only); entity canonicalization has two thresholds with merge, reject and split; decisions carry why and alternatives; export → import is byte-identical and encrypted backup works; PDF, Markdown, web and YouTube ingestion cites page, heading or timestamp; nightly synthesis and relation typing run. Nothing from the old repo's Celery, SQLAlchemy, litellm or Next.js stack is in the tree.
-- [ ] `BENCHMARKS.md` is published, with honest local and comparable rows next to the Mem0 and Zep baselines, and the 60-second demo is recorded.
+- [x] The Phase 0 exit gate passed: no personal data in git history, a loopback bind, a mandatory token, and no cloud calls in core.
+- [x] Every save runs the 5-stage pipeline (§1.4), and every memory carries all 8 aspects, including lane and sensitivity. Unsupported memories are dropped with a reason in `save-report`.
+- [x] Every capture becomes memories through the worker, and every failure is visible in review. Nothing fails silently.
+- [x] Every recalled memory carries a verified quote, `said_at`, `valid_from/to` and its version. Unverified memories are never recalled as truth.
+- [x] Abstention is calibrated on the reranker (τ in `calibration.json`), with ≥ 0.9 precision on held-out data.
+- [x] The viewer has browse, detail, history, trace, correct, forget, undo, review, graph and timeline.
+- [x] Conversational forget and correct work through lineage, with undo, and never silently overwrite.
+- [x] The MCP server works over stdio and HTTP, is read-only by default, and is documented for Cursor and Claude Code.
+- [x] The Obsidian vault is rebuildable and two-way, with entity-driven wikilinks, backlinks, daily notes and conflict files.
+- [x] Lanes with ranking-only decay (per day, with floors), session synopses, nightly consolidation with a contradiction judge, and query understanding are all in place.
+- [x] About 100 internal cases plus the LongMemEval and LoCoMo adapters run, with the CI gate on every PR and a nightly GPU run.
+- [x] **v3 merge:** the context pack is used by Jarvis, the evals and MCP; directives are pinned and cited, and mined ones go to review; retrieval reinforcement is on (ranking only); entity canonicalization has two thresholds with merge, reject and split; decisions carry why and alternatives; export → import is byte-identical and encrypted backup works; PDF, Markdown, web and YouTube ingestion cites page, heading or timestamp; nightly synthesis and relation typing run. Nothing from the old repo's Celery, SQLAlchemy, litellm or Next.js stack is in the tree.
+- [x] `BENCHMARKS.md` is published, with honest local and comparable rows next to the Mem0 and Zep baselines, and the 60-second demo is recorded.
 
 ---
 
