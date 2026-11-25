@@ -660,6 +660,133 @@ class MemoryServiceClient:
             self._record_failure()
             return []
 
+    async def get_context_pack(
+        self,
+        query: str,
+        context: str = "default",
+        k: int = 8,
+        budget_tokens: int = 2048,
+        trace_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Retrieves structured ContextPack (directives + cited memories + prompt_injection) via POST /v1/context."""
+        if self.circuit_open:
+            return None
+
+        headers = {"X-Trace-ID": trace_id} if trace_id else {}
+        try:
+            resp = await self._client.post(
+                f"{self.base_url}/v1/context",
+                headers=headers,
+                json={"query": query, "context": context, "k": k, "budget_tokens": budget_tokens},
+            )
+            if resp.status_code == 200:
+                self._record_success()
+                data = resp.json()
+                self.last_abstained = (data.get("status") == "abstain")
+                return data
+            self._record_failure()
+            return None
+        except Exception as e:
+            logger.debug(f"Memory service context pack error: {e}")
+            self._record_failure()
+            return None
+
+    async def close_session(
+        self,
+        session_id: str,
+        project: str | None = None,
+        branch: str | None = None,
+        context: str = "default",
+        trace_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Closes a session and persists a <=150-word synopsis via POST /v1/sessions/{id}/close."""
+        if self.circuit_open:
+            return None
+
+        headers = {"X-Trace-ID": trace_id} if trace_id else {}
+        try:
+            resp = await self._client.post(
+                f"{self.base_url}/v1/sessions/{session_id}/close",
+                headers=headers,
+                json={"project": project, "branch": branch, "context": context},
+            )
+            if resp.status_code == 200:
+                self._record_success()
+                return resp.json()
+            return None
+        except Exception as e:
+            logger.debug(f"Memory service close_session error: {e}")
+            return None
+
+    async def prime_session(
+        self,
+        project: str | None = None,
+        branch: str | None = None,
+        limit: int = 3,
+        context: str = "default",
+        trace_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Fetches top relevant session synopses via GET /v1/sessions/prime."""
+        if self.circuit_open:
+            return None
+
+        headers = {"X-Trace-ID": trace_id} if trace_id else {}
+        params: dict[str, Any] = {"limit": limit, "context": context}
+        if project:
+            params["project"] = project
+        if branch:
+            params["branch"] = branch
+        try:
+            resp = await self._client.get(
+                f"{self.base_url}/v1/sessions/prime",
+                headers=headers,
+                params=params,
+            )
+            if resp.status_code == 200:
+                self._record_success()
+                return resp.json()
+            return None
+        except Exception as e:
+            logger.debug(f"Memory service prime_session error: {e}")
+            return None
+
+    async def get_timeline(
+        self,
+        entity: str | None = None,
+        lineage_id: str | None = None,
+        from_date: str | None = None,
+        to_date: str | None = None,
+        limit: int = 50,
+        trace_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Fetches versioned memory timeline via GET /v1/timeline."""
+        if self.circuit_open:
+            return []
+
+        headers = {"X-Trace-ID": trace_id} if trace_id else {}
+        params: dict[str, Any] = {"limit": limit}
+        if entity:
+            params["entity"] = entity
+        if lineage_id:
+            params["lineage_id"] = lineage_id
+        if from_date:
+            params["from"] = from_date
+        if to_date:
+            params["to"] = to_date
+        try:
+            resp = await self._client.get(
+                f"{self.base_url}/v1/timeline",
+                headers=headers,
+                params=params,
+            )
+            if resp.status_code == 200:
+                self._record_success()
+                return resp.json().get("timeline", [])
+            return []
+        except Exception as e:
+            logger.debug(f"Memory service get_timeline error: {e}")
+            return []
+
     async def close(self):
         await self._client.aclose()
 

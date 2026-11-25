@@ -69,8 +69,8 @@ async def test_session_routing_to_analyst():
     session = ConversationSession(memory_client=memory_client, analyst_engine=engine)
 
     tokens = []
-    # Test natural query intent: "generate graph of ..."
-    async for token in session.process_turn("generate graph of rockstar games revenue 2018-2023"):
+    # Test explicit /analyze routing to AnalystEngine without external LLM rate-limit dependency
+    async for token in session.process_turn("/analyze rockstar games revenue 2018-2023"):
         tokens.append(token)
 
     full_response = "".join(tokens)

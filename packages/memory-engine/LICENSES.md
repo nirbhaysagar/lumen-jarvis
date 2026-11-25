@@ -4,6 +4,7 @@
 | Jinja2                    | 3.1.6      | BSD License                                                                    |
 | Mako                      | 1.4.3      | MIT                                                                            |
 | MarkupSafe                | 3.0.4      | BSD-3-Clause                                                                   |
+| PyJWT                     | 2.15.1     | MIT                                                                            |
 | PyYAML                    | 6.0.3      | MIT License                                                                    |
 | Pygments                  | 2.21.0     | BSD-2-Clause                                                                   |
 | RapidFuzz                 | 3.14.6     | MIT                                                                            |
@@ -91,6 +92,8 @@
 | markitdown                | 0.1.9      | MIT                                                                            |
 | matplotlib                | 3.11.2     | Python Software Foundation License                                             |
 | matplotlib-inline         | 0.2.2      | BSD-3-Clause                                                                   |
+| mcp                       | 2.3.0      | MIT License                                                                    |
+| mcp-types                 | 2.3.0      | MIT License                                                                    |
 | mdurl                     | 0.1.2      | MIT License                                                                    |
 | mmh3                      | 5.3.1      | MIT License                                                                    |
 | multidict                 | 7.2.1      | Apache-2.0                                                                     |
@@ -139,6 +142,7 @@
 | python-dateutil           | 4.0.0      | BSD-3-Clause                                                                   |
 | python-dotenv             | 1.2.4      | BSD-3-Clause                                                                   |
 | python-frontmatter        | 1.3.0      | MIT                                                                            |
+| python-multipart          | 0.0.34     | Apache-2.0                                                                     |
 | pytz                      | 2026.6     | MIT License                                                                    |
 | pyzmq                     | 27.3.0     | BSD-3-Clause                                                                   |
 | rank-bm25                 | 0.2.2      | Apache2.0                                                                      |
@@ -156,6 +160,7 @@
 | snowballstemmer           | 2.2.0      | BSD License                                                                    |
 | sounddevice               | 0.5.6      | MIT                                                                            |
 | soupsieve                 | 4.1.2      | MIT                                                                            |
+| sse-starlette             | 3.7.1      | BSD-3-Clause                                                                   |
 | stack-data                | 0.6.3      | MIT License                                                                    |
 | starlette                 | 1.10.0     | BSD-3-Clause                                                                   |
 | tabulate                  | 0.10.0     | MIT                                                                            |

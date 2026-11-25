@@ -721,12 +721,28 @@ class ConversationSession:
                 announcements.append(f"⚡ [System Notice] Background task '{n.name}' ({n.task_id}) reached state: {n.state.value}.")
             yield "\n".join(announcements) + "\n\n"
 
-        # 3. Unified Hybrid Memory Retrieval (BM25 + pgvector + Graph RRF)
-        memories = await self.memory.search(
-            query=user_text,
-            limit=4,
-            trace_id=trace_id,
-        )
+        # 3. Unified Context Pack (Directives + 5-Channel Hybrid Recall + Citations)
+        memories: list[dict[str, Any]] = []
+        if hasattr(self.memory, "get_context_pack"):
+            pack = await self.memory.get_context_pack(
+                query=user_text,
+                k=4,
+                trace_id=trace_id,
+            )
+            if pack is not None:
+                memories = pack.get("relevant_memories", [])
+            elif hasattr(self.memory, "search"):
+                memories = await self.memory.search(
+                    query=user_text,
+                    limit=4,
+                    trace_id=trace_id,
+                )
+        else:
+            memories = await self.memory.search(
+                query=user_text,
+                limit=4,
+                trace_id=trace_id,
+            )
 
         # 4. Autonomous Agent Loop (ReAct: max 8 steps, context last ~15 turns, direct tool resolution)
         full_assistant_reply = []
@@ -769,3 +785,21 @@ class ConversationSession:
         # 7. Automated Context Compaction (Evacuates turns if high watermark is reached)
         if self.compactor.should_compact(self.history):
             self.history, _ = self.compactor.compact(self.conversation_id, self.history)
+
+    async def close_session_synopsis(self, project: str = "lumen", branch: str | None = None) -> dict[str, Any] | None:
+        """Persists a <=150-word session synopsis on close via POST /v1/sessions/{id}/close."""
+        if hasattr(self.memory, "close_session"):
+            return await self.memory.close_session(
+                session_id=self.conversation_id,
+                project=project,
+                branch=branch,
+            )
+        return None
+
+    async def prime_session_context(self, project: str = "lumen", branch: str | None = None, limit: int = 3) -> list[dict[str, Any]]:
+        """Loads top relevant session synopses on session start via GET /v1/sessions/prime."""
+        if hasattr(self.memory, "prime_session"):
+            res = await self.memory.prime_session(project=project, branch=branch, limit=limit)
+            if res and isinstance(res, dict):
+                return res.get("synopses", [])
+        return []

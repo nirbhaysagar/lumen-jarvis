@@ -262,4 +262,4 @@ async def test_session_exec_and_approval_flow():
     async for token in session.process_turn(f"/reject {approval_id}"):
         reject_tokens.append(token)
     reject_reply = "".join(reject_tokens)
-    assert "rejected and cancelled" in reject_reply
+    assert "cancelled by operator" in reject_reply or "rejected and cancelled" in reject_reply

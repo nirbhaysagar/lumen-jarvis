@@ -208,6 +208,16 @@ class MorningBriefingService:
 
         return headlines[:count]
 
+    async def fetch_recent_timeline(self) -> List[Dict[str, Any]]:
+        """Fetches memory changes over the last 24 hours from GET /v1/timeline."""
+        if self.memory and hasattr(self.memory, "get_timeline"):
+            try:
+                yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+                return await self.memory.get_timeline(from_date=yesterday, limit=25)
+            except Exception as e:
+                logger.warning(f"Could not fetch recent timeline: {e}")
+        return []
+
     async def fetch_memory_and_tasks(self) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """Queries pending review queue proposals and active background tasks."""
         pending_proposals: List[Dict[str, Any]] = []
