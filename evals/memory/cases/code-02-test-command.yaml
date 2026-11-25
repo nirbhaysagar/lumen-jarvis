@@ -4,6 +4,7 @@ setup:
 - content: To run memory engine unit tests, execute pytest packages/memory-engine/tests
     -q.
   occurred_at: -10d
+  context: code
 query:
   text: How do I run memory engine unit tests?
   context: code

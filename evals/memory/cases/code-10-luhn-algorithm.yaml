@@ -4,6 +4,7 @@ setup:
 - content: We use Luhn checksum validation in sensitivity.py to detect credit card
     numbers.
   occurred_at: -7d
+  context: code
 query:
   text: What algorithm validates payment card numbers in our scanner?
   context: code

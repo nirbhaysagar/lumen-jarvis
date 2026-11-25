@@ -8,6 +8,8 @@ from typing import Any, Literal
 import uuid
 from rapidfuzz import fuzz
 
+from app.domain.match import statements_conflict
+
 ActionType = Literal["create", "supersede", "reaffirm", "stage"]
 TierType = Literal["A", "B"]
 
@@ -56,6 +58,21 @@ class Decision:
     contradicts: list[uuid.UUID] = field(default_factory=list)
 
 
+def _extract_val(value: Any) -> str:
+    if isinstance(value, str):
+        try:
+            import json
+            parsed = json.loads(value)
+            if isinstance(parsed, dict) and "value" in parsed:
+                return str(parsed["value"]).strip().lower()
+        except Exception:
+            pass
+        return value.strip().lower()
+    if isinstance(value, dict) and "value" in value:
+        return str(value["value"]).strip().lower()
+    return str(value or "").strip().lower()
+
+
 def decide(
     cand: CandidateMemory,
     own_existing: ExistingMemory | None,
@@ -101,14 +118,21 @@ def decide(
         # Check if other speaker's active fact conflicts
         conflicts = []
         for other in others:
-            if other.predicate == cand.predicate and other.asserted_by != cand.asserted_by:
-                # If object or object_value or polarity differs
-                if (
-                    other.object_id != cand.object_id
-                    or other.object_value != cand.object_value
-                    or other.polarity != cand.polarity
-                ):
-                    conflicts.append(other.id)
+            if other.asserted_by.lower() == cand.asserted_by.lower():
+                continue
+            same_predicate = bool(
+                other.predicate and cand.predicate and other.predicate == cand.predicate
+            )
+            values_differ = (
+                other.object_id != cand.object_id
+                or _extract_val(other.object_value) != _extract_val(cand.object_value)
+                or other.polarity != cand.polarity
+            )
+            wording_differs = statements_conflict(other.statement, cand.statement)
+            if same_predicate and (values_differ or wording_differs):
+                conflicts.append(other.id)
+            elif not same_predicate and wording_differs:
+                conflicts.append(other.id)
 
         if conflicts:
             return Decision(
@@ -120,21 +144,6 @@ def decide(
 
     # 5. Check Reaffirmation vs Update on Own Speaker Memory
     if own_existing and own_existing.status == "active":
-        # Must have same object value/id to be considered a restated fact / reaffirmation
-        def _extract_val(v: Any) -> str:
-            if isinstance(v, str):
-                try:
-                    import json
-                    parsed = json.loads(v)
-                    if isinstance(parsed, dict) and "value" in parsed:
-                        return str(parsed["value"]).strip().lower()
-                except Exception:
-                    pass
-                return v.strip().lower()
-            if isinstance(v, dict) and "value" in v:
-                return str(v["value"]).strip().lower()
-            return str(v or "").strip().lower()
-
         if cand.object_id is not None and own_existing.object_id is not None:
             same_object = (cand.object_id == own_existing.object_id)
         else:

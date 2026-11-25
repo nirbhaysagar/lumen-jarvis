@@ -3,6 +3,7 @@ category: code_and_work_lanes
 setup:
 - content: Lumen core repository is hosted at github.com/forion/lumen.
   occurred_at: -15d
+  context: code
 query:
   text: What is the git repository URL for Lumen?
   context: code

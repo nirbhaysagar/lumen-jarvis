@@ -3,6 +3,7 @@ category: code_and_work_lanes
 setup:
 - content: Lumen Redis queue uses logical database index 0.
   occurred_at: -11d
+  context: code
 query:
   text: What Redis database number does Lumen use?
   context: code

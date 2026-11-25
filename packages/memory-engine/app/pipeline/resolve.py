@@ -11,6 +11,7 @@ import uuid
 import asyncpg
 
 from app.domain.decide import CandidateMemory, ExistingMemory, Decision, decide
+from app.domain.match import has_change_cue, pick_predecessor, statements_conflict
 from app.pipeline.contracts import ExtractedEntity, VerifiedMemory
 
 logger = logging.getLogger("lumen.pipeline.resolve")
@@ -106,6 +107,55 @@ class EntityResolver:
         return self.ref_to_id
 
 
+def _existing_from_row(row, subject_id, predicate) -> ExistingMemory:
+    return ExistingMemory(
+        id=row["id"],
+        lineage_id=row["lineage_id"],
+        version=row["version"],
+        statement=row["statement"],
+        subject_id=subject_id,
+        predicate=predicate or row["predicate"],
+        object_id=row["object_id"],
+        object_value=row["object_value"],
+        cardinality=row["cardinality"],
+        polarity=row["polarity"],
+        asserted_by=row["asserted_by"],
+        status=row["status"],
+    )
+
+
+async def _active_memories(conn: asyncpg.Connection, context_id: uuid.UUID, speaker: str):
+    return await conn.fetch(
+        """
+        SELECT id, lineage_id, version, statement, subject_id, predicate, object_id, object_value,
+               cardinality, polarity, asserted_by, status
+        FROM memories
+        WHERE context_id = $1 AND lower(asserted_by) = lower($2)
+          AND superseded_at IS NULL AND status = 'active'
+        ORDER BY recorded_at DESC
+        LIMIT 30
+        """,
+        context_id,
+        speaker,
+    )
+
+
+async def _active_in_context(conn: asyncpg.Connection, context_id: uuid.UUID):
+    """Every open memory in this workspace, whatever the extractor put in asserted_by."""
+    return await conn.fetch(
+        """
+        SELECT id, lineage_id, version, statement, subject_id, predicate, object_id, object_value,
+               cardinality, polarity, asserted_by, status
+        FROM memories
+        WHERE context_id = $1
+          AND superseded_at IS NULL AND status = 'active'
+        ORDER BY recorded_at DESC
+        LIMIT 30
+        """,
+        context_id,
+    )
+
+
 async def resolve_decisions(
     conn: asyncpg.Connection,
     context_id: uuid.UUID,
@@ -122,6 +172,9 @@ async def resolve_decisions(
         mem = vm.extracted
         subject_id = ref_to_id.get(mem.subject_ref) if mem.subject_ref else None
         object_id = ref_to_id.get(mem.object_ref) if mem.object_ref else None
+
+        if not mem.change_cue and has_change_cue(mem.statement):
+            mem.change_cue = True
 
         # Build CandidateMemory
         cand = CandidateMemory(
@@ -192,22 +245,31 @@ async def resolve_decisions(
                 mem.asserted_by,
             )
             for r in other_rows:
-                others_existing.append(
-                    ExistingMemory(
-                        id=r["id"],
-                        lineage_id=r["lineage_id"],
-                        version=r["version"],
-                        statement=r["statement"],
-                        subject_id=subject_id,
-                        predicate=mem.predicate,
-                        object_id=r["object_id"],
-                        object_value=r["object_value"],
-                        cardinality=r["cardinality"],
-                        polarity=r["polarity"],
-                        asserted_by=r["asserted_by"],
-                        status=r["status"],
-                    )
+                others_existing.append(_existing_from_row(r, subject_id, mem.predicate))
+
+        # Predicate strings drift ("uses_database" vs "primary_database").
+        # A change still closes the memory it names, and another speaker's
+        # disagreement is staged even when the predicate does not match.
+        if own_existing is None and cand.change_cue:
+            # Extractors label the same fact "user", "lumen", or "we".
+            # A change closes whichever open memory it actually names.
+            own_rows = list(await _active_in_context(conn, context_id))
+            chosen = pick_predecessor(mem.statement, [r["statement"] for r in own_rows])
+            if chosen is not None:
+                own_existing = _existing_from_row(
+                    own_rows[chosen],
+                    own_rows[chosen]["subject_id"],
+                    own_rows[chosen]["predicate"],
                 )
+
+        if cand.asserted_by.lower() != "user":
+            user_rows = await _active_memories(conn, context_id, "user")
+            known_ids = {row.id for row in others_existing}
+            for row in user_rows:
+                if row["id"] in known_ids:
+                    continue
+                if statements_conflict(row["statement"], mem.statement):
+                    others_existing.append(_existing_from_row(row, row["subject_id"], row["predicate"]))
 
         decision = decide(cand, own_existing, others_existing)
         resolved.append((vm, decision, subject_id, object_id))

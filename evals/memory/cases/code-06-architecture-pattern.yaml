@@ -3,6 +3,7 @@ category: code_and_work_lanes
 setup:
 - content: Lumen persistence follows hexagonal architecture with adapters in app/adapters/.
   occurred_at: -16d
+  context: code
 query:
   text: What architectural pattern organizes Lumen adapters?
   context: code

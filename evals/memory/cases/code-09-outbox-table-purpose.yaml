@@ -4,6 +4,7 @@ setup:
 - content: The transactional outbox table emits CDC change events for vault markdown
     projection.
   occurred_at: -9d
+  context: code
 query:
   text: What downstream projection consumes the outbox table?
   context: code

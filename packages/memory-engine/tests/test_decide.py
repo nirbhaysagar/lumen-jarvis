@@ -149,6 +149,16 @@ def test_decide_table_20_cases():
             None, [],
             ("create", "A", "new"),
         ),
+        # 21. Cross-speaker conflict with a different predicate string
+        (
+            CandidateMemory(
+                "Rahul says Lumen should migrate to MongoDB for document flexibility.",
+                sub_id, "migrate_to", None, "MongoDB",
+                asserted_by="Rahul", confidence=0.9,
+            ),
+            None, [existing_active],
+            ("stage", "B", "cross_speaker_conflict"),
+        ),
     ]
 
     assert len(cases) >= 20

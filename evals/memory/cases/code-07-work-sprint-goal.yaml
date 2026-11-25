@@ -4,6 +4,7 @@ setup:
 - content: Our current sprint goal at CloudScale is optimizing p99 ingestion latency
     under 200ms.
   occurred_at: -5d
+  context: work
 query:
   text: What is our current sprint objective at work?
   context: work

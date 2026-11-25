@@ -12,6 +12,7 @@ import uuid
 import asyncpg
 
 from app.domain.extraction import MemoryExtractor, ExtractionError
+from app.domain.match import has_change_cue
 from app.pipeline.contracts import (
     ExtractedEntity,
     ExtractedMemory,
@@ -173,13 +174,20 @@ class SavePipeline:
         # Parse memories
         extracted_memories: list[ExtractedMemory] = []
         for m in extracted_data.get("memories", []):
+            model_speaker = (m.get("asserted_by") or speaker or "user").strip()
+            # The capture speaker is who actually said this utterance.
+            if speaker and speaker.lower() not in ("user", "system") and model_speaker.lower() in ("user", "system", speaker.lower()):
+                asserted_by = speaker
+            else:
+                asserted_by = model_speaker
+            statement = m.get("statement", "").strip()
             extracted_memories.append(
                 ExtractedMemory(
                     ref=m.get("ref", "m1"),
                     type=m.get("type", "fact"),
                     epistemic=m.get("epistemic", "fact"),
-                    asserted_by=m.get("asserted_by", speaker),
-                    statement=m.get("statement", "").strip(),
+                    asserted_by=asserted_by,
+                    statement=statement,
                     subject_ref=m.get("subject"),
                     predicate=m.get("predicate"),
                     object_ref=m.get("object"),
@@ -191,7 +199,7 @@ class SavePipeline:
                     evidence=m.get("evidence", []),
                     confidence=float(m.get("confidence", 0.8)),
                     importance=float(m.get("importance", 0.5)),
-                    change_cue=bool(m.get("change_cue", False)),
+                    change_cue=bool(m.get("change_cue", False)) or has_change_cue(statement) or has_change_cue(raw_text),
                     relations=m.get("relations", []),
                     lane=m.get("lane", "personal"),
                     sensitivity=m.get("sensitivity", "normal"),

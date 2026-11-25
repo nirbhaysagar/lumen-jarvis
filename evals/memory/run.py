@@ -16,6 +16,7 @@ import sys
 import time
 from typing import Any, Sequence
 import secrets
+from urllib.parse import urlparse, urlunparse
 from dotenv import load_dotenv
 import asyncpg
 import yaml
@@ -26,11 +27,20 @@ load_dotenv()
 
 _EVAL_TOKEN = os.getenv("LUMEN_MEMORY_TOKEN") or secrets.token_urlsafe(32)
 _EVAL_PG_PASS = os.getenv("POSTGRES_PASSWORD", "")
-_EVAL_DB_URL = (
+
+
+def _force_test_database(url: str) -> str:
+    """Evals truncate between cases. Never let that URL point at the live database."""
+    parts = urlparse(url)
+    return urlunparse(parts._replace(path="/lumen_memory_test"))
+
+
+_raw_eval_url = (
     os.getenv("LUMEN_DATABASE_URL")
     or os.getenv("DATABASE_URL")
     or f"postgresql://lumen:{_EVAL_PG_PASS}@localhost:5432/lumen_memory_test"
 )
+_EVAL_DB_URL = _force_test_database(_raw_eval_url)
 
 # Force test database isolation before importing app
 os.environ["LUMEN_ENV"] = "test"
@@ -52,6 +62,7 @@ if str(engine_path) not in sys.path:
 from app.core.config import settings
 from app.main import app
 from evals.memory.metrics import CaseResult, compute_eval_metrics
+from evals.memory.scoring import obsolete_still_asserted
 
 settings.POSTGRES_DB = "lumen_memory_test"
 settings.POSTGRES_PASSWORD = _EVAL_PG_PASS
@@ -240,7 +251,7 @@ async def run_eval_case(
         # Check answer_excludes_any (e.g. obsolete value after supersede)
         if "answer_excludes_any" in expect:
             for s in expect["answer_excludes_any"]:
-                if s.lower() in answer.lower():
+                if obsolete_still_asserted(answer, s):
                     reasons.append(f"Answer contains obsolete/excluded value '{s}': {answer}")
 
         # Check top_k_contains_setup

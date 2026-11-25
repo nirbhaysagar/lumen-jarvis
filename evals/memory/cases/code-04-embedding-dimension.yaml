@@ -3,6 +3,7 @@ category: code_and_work_lanes
 setup:
 - content: The nomic-embed-text model generates 768-dimensional vector embeddings.
   occurred_at: -14d
+  context: code
 query:
   text: What is the vector dimension of nomic-embed-text?
   context: code
